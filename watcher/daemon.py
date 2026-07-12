@@ -70,6 +70,7 @@ class WatcherDaemon:
         self._last_ts: float = -1e9
         self._last_vision_key: tuple[str, str] | None = None
         self._last_vision_ts: float = -1e9
+        self._last_save_ts: float = -1e9
         # counters for the "fraction of triggers that reach vision" metric
         self.stats = {"triggers": 0, "skipped": 0, "uia": 0, "vision": 0}
 
@@ -133,6 +134,13 @@ class WatcherDaemon:
         rid = self.store.add(obs, embedding=emb, dedup=not hard, heartbeat_secs=self.heartbeat)
         self._last_hash = content_hash(obs.hash_text())
         self._last_ts = now
+
+        if config.INDEX_SAVE_SECS > 0 and (now - self._last_save_ts) >= config.INDEX_SAVE_SECS:
+            try:
+                self.store.save()
+                self._last_save_ts = now
+            except Exception as e:  # noqa: BLE001 - persistence must never crash capture
+                log.warning("index save failed: %s", e)
 
         if self.gate is not None:
             try:

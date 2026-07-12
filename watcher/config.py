@@ -81,3 +81,8 @@ SOFT_TRIGGERS = {"TypingPause", "KeyPress", "Clipboard", "VisualChange", "Scroll
 
 # -- proactivity --------------------------------------------------------------
 INTERJECTION_COOLDOWN_SECS = _env_int("CONTOUR_INTERJECTION_COOLDOWN", 60)
+
+# How often the in-memory vector index is flushed to disk, so other processes
+# (e.g. the Hermes MCP server) can see fresh data without waiting for a clean
+# shutdown. 0 disables periodic saving (save on close() only).
+INDEX_SAVE_SECS = _env_int("CONTOUR_INDEX_SAVE_SECS", 20)
