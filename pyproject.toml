@@ -5,6 +5,9 @@ description = "Local-first proactive multimodal assistant that rides on top of H
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    # relay runtime (also used by Vercel function runtime)
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
     "numpy>=1.24",
     # datastore
     "turbovec>=0.8.0",
@@ -24,8 +27,8 @@ dependencies = [
 [project.optional-dependencies]
 # system-audio loopback on Windows (stretch)
 loopback = ["PyAudioWPatch>=0.2.12 ; sys_platform == 'win32'"]
-# relay server (deployed separately; not needed on the client)
-relay = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
+# relay server extras
+relay = []
 dev = ["pytest>=8.0"]
 
 [project.scripts]
@@ -40,3 +43,6 @@ packages = ["watcher", "datastore", "mcp_server"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.vercel]
+entrypoint = "relay.app:app"
