@@ -28,7 +28,8 @@ class AuthError(Exception):
 
 class AuthStore:
     def __init__(self, db_path: str | None = None):
-        self.db_path = db_path or os.environ.get("CONTOUR_RELAY_DB", "relay.db")
+        default_db = "/tmp/relay.db" if os.environ.get("VERCEL") else "relay.db"
+        self.db_path = db_path or os.environ.get("CONTOUR_RELAY_DB", default_db)
         if self.db_path != ":memory:":
             Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
