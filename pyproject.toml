@@ -40,3 +40,6 @@ packages = ["watcher", "datastore", "mcp_server"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.vercel]
+entrypoint = "relay.app:app"
