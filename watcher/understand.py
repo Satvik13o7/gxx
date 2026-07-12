@@ -53,7 +53,7 @@ class Understanding:
     # -- vision ---------------------------------------------------------------
     def describe(self, image: bytes | str, uia_text: str = "") -> dict:
         """Return a structured summary dict. ``image`` = PNG bytes or a file path."""
-        if config.INFERENCE_MODE == "hosted" and config.HOSTED_INFERENCE_URL:
+        if config.INFERENCE_MODE == "hosted":
             raw = self._describe_hosted(image, uia_text)
             return self._parse(raw)
         content = _DESCRIBE_PROMPT
