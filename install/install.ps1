@@ -34,7 +34,7 @@ param(
     [string]$EmbedModel = "nomic-embed-text",
     [ValidateSet("local", "hosted")]
     [string]$InferenceMode = $(if ($env:CONTOUR_INFERENCE_MODE) { $env:CONTOUR_INFERENCE_MODE } else { "local" }),
-    [string]$HostedProvider = $(if ($env:CONTOUR_HOSTED_PROVIDER) { $env:CONTOUR_HOSTED_PROVIDER } else { "hf" }),
+    [string]$HostedProvider = $(if ($env:CONTOUR_HOSTED_PROVIDER) { $env:CONTOUR_HOSTED_PROVIDER } else { "relay" }),
     [string]$HostedInferenceUrl = $env:CONTOUR_HOSTED_INFERENCE_URL,
     [string]$HostedInferenceKey = $env:CONTOUR_HOSTED_INFERENCE_KEY,
     [string]$DeepinfraApiKey = $env:DEEPINFRA_API_KEY,
@@ -293,6 +293,18 @@ Warn "Screen capture is read locally by the watcher; nothing raw ever leaves the
 
 # 9. Start the watcher --------------------------------------------------------
 Step 9 "Starting the watcher (background)"
+$watcherEnv = @{
+    "CONTOUR_RELAY_URL" = $RelayUrl
+    "CONTOUR_DEVICE_TOKEN" = $DeviceToken
+    "CONTOUR_INFERENCE_MODE" = $InferenceMode
+    "CONTOUR_HOSTED_PROVIDER" = $HostedProvider
+    "CONTOUR_HOSTED_INFERENCE_URL" = $HostedInferenceUrl
+    "CONTOUR_HOSTED_INFERENCE_KEY" = $HostedInferenceKey
+    "DEEPINFRA_API_KEY" = $DeepinfraApiKey
+}
+foreach ($k in $watcherEnv.Keys) {
+    [Environment]::SetEnvironmentVariable($k, $watcherEnv[$k], "User")
+}
 $taskName = "contour-watcher"
 $action = New-ScheduledTaskAction -Execute $RuntimePython -Argument "-m watcher.daemon" -WorkingDirectory $ProjectRoot
 $trigger = New-ScheduledTaskTrigger -AtLogOn

@@ -42,7 +42,7 @@ def data_dir() -> Path:
 
 # -- models -------------------------------------------------------------------
 INFERENCE_MODE = _env("CONTOUR_INFERENCE_MODE", "local").strip().lower()  # local|hosted
-HOSTED_PROVIDER = _env("CONTOUR_HOSTED_PROVIDER", "hf").strip().lower()  # hf|deepinfra|openai_compat
+HOSTED_PROVIDER = _env("CONTOUR_HOSTED_PROVIDER", "relay").strip().lower()  # relay|hf|deepinfra|openai_compat
 HOSTED_INFERENCE_URL = _env("CONTOUR_HOSTED_INFERENCE_URL", "").strip()
 HOSTED_INFERENCE_KEY = _env("CONTOUR_HOSTED_INFERENCE_KEY", "").strip()
 DEEPINFRA_API_KEY = _env("DEEPINFRA_API_KEY", "").strip()

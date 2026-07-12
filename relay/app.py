@@ -111,6 +111,12 @@ class TTSReq(BaseModel):
     voice_id: str = ""
 
 
+class VisionReq(BaseModel):
+    prompt: str
+    image_b64: str
+    model: str = ""
+
+
 class Credentials(BaseModel):
     email: str
     password: str
@@ -223,6 +229,44 @@ def do_tts(text: str, voice_id: str) -> bytes:
     )
     r.raise_for_status()
     return r.content
+
+
+def do_vision(prompt: str, image_b64: str, model: str = "") -> str:
+    """Run hosted vision inference via backend-managed provider keys."""
+    import httpx
+
+    key = os.environ.get("DEEPINFRA_API_KEY") or os.environ.get("CONTOUR_HOSTED_INFERENCE_KEY")
+    if not key:
+        raise HTTPException(status_code=503, detail="no hosted inference key configured")
+    base = (
+        os.environ.get("DEEPINFRA_BASE_URL")
+        or os.environ.get("CONTOUR_HOSTED_INFERENCE_URL")
+        or "https://api.deepinfra.com/v1/openai"
+    ).rstrip("/")
+    url = f"{base}/chat/completions"
+    mdl = model or os.environ.get("CONTOUR_HOSTED_VISION_MODEL", "google/gemma-4-26B-A4B-it")
+    data_url = "data:image/png;base64," + image_b64
+    payload = {
+        "model": mdl,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": data_url}},
+                ],
+            }
+        ],
+        "temperature": 0.2,
+    }
+    r = httpx.post(
+        url,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        json=payload,
+        timeout=60,
+    )
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"]["content"]
 
 
 def create_app(
@@ -374,6 +418,11 @@ def create_app(
             media_type="application/octet-stream",
             headers={"X-Sample-Rate": str(TTS_SAMPLE_RATE)},
         )
+
+    @app.post("/vision")
+    def vision(req: VisionReq, token: str = Depends(auth)) -> dict:
+        content = do_vision(scrub(req.prompt), req.image_b64, req.model)
+        return {"content": content}
 
     return app
 

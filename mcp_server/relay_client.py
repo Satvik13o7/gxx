@@ -7,6 +7,7 @@ personal API key. Raw screen/audio never passes through here — text only.
 
 from __future__ import annotations
 
+import base64
 import logging
 import os
 
@@ -61,3 +62,13 @@ class RelayClient:
         resp = self._request("/tts", {"text": scrub(text), "voice_id": voice_id})
         rate = int(resp.headers.get("X-Sample-Rate", "16000"))
         return resp.content, rate
+
+    def vision(self, prompt: str, image: bytes, model: str = "") -> dict:
+        return self._post(
+            "/vision",
+            {
+                "prompt": scrub(prompt),
+                "image_b64": base64.b64encode(image).decode("ascii"),
+                "model": model,
+            },
+        )

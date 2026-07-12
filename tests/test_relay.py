@@ -21,8 +21,15 @@ def captured(monkeypatch):
         box["cloud_prompt"] = prompt
         return "cloud answer"
 
+    def fake_vision(prompt, image_b64, model=""):
+        box["vision_prompt"] = prompt
+        box["vision_image_b64"] = image_b64
+        box["vision_model"] = model
+        return '{"activity":"hosted vision"}'
+
     monkeypatch.setattr(appmod, "do_search", fake_search)
     monkeypatch.setattr(appmod, "do_cloud", fake_cloud)
+    monkeypatch.setattr(appmod, "do_vision", fake_vision)
     return box
 
 
@@ -94,6 +101,21 @@ def test_tts_proxies_elevenlabs_and_scrubs(monkeypatch):
     assert r.content == b"\x01\x02\x03\x04"
     assert "bob@example.com" not in cap["text"] and "[EMAIL]" in cap["text"]  # server backstop
     assert cap["voice"] == "v9"
+
+
+def test_vision_proxies_and_scrubs(captured):
+    c = client(tokens={"t"})
+    r = c.post(
+        "/vision",
+        json={"prompt": "contact me at bob@example.com", "image_b64": "QUJD", "model": "m1"},
+        headers={"Authorization": "Bearer t"},
+    )
+    assert r.status_code == 200
+    assert r.json()["content"] == '{"activity":"hosted vision"}'
+    assert "bob@example.com" not in captured["vision_prompt"]
+    assert "[EMAIL]" in captured["vision_prompt"]
+    assert captured["vision_image_b64"] == "QUJD"
+    assert captured["vision_model"] == "m1"
 
 
 # -- account flow ------------------------------------------------------------

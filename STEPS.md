@@ -49,7 +49,7 @@ early as possible. Checkboxes track remaining work; most code is already built a
      irm https://RELAY_URL/download/install.ps1 -OutFile install.ps1
      ./install.ps1 -RelayUrl "https://RELAY_URL" -DeviceToken "contour_..."   # -AskCloud to opt in
      # hosted Gemma 4 option:
-     ./install.ps1 -RelayUrl "https://RELAY_URL" -DeviceToken "contour_..." -InferenceMode hosted -HostedInferenceUrl "https://<hf-endpoint>"
+     ./install.ps1 -RelayUrl "https://RELAY_URL" -DeviceToken "contour_..." -InferenceMode hosted -HostedProvider relay
      ```
    - macOS (Terminal):
      ```bash
@@ -57,7 +57,7 @@ early as possible. Checkboxes track remaining work; most code is already built a
      chmod +x install.sh
      ./install.sh --relay-url "https://RELAY_URL" --device-token "contour_..."   # --ask-cloud to opt in
      # hosted Gemma 4 option:
-     ./install.sh --relay-url "https://RELAY_URL" --device-token "contour_..." --inference-mode hosted --hosted-inference-url "https://<hf-endpoint>"
+     ./install.sh --relay-url "https://RELAY_URL" --device-token "contour_..." --inference-mode hosted --hosted-provider relay
      ```
     The installer: pulls `gemma4:e4b` + `nomic-embed-text`, installs contour deps, registers the
     MCP server + skill into Hermes, wires the token, and starts the watcher at login

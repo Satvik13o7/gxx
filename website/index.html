@@ -222,7 +222,6 @@
               <option value="hosted">Hosted Gemma 4</option>
             </select>
           </label>
-          <input id="hosted-url" placeholder="Hosted endpoint URL (for hosted mode)" style="display:none;min-width:300px;font-family:var(--mono);font-size:12px;padding:8px;border:1px solid var(--line);background:#fff" />
         </div>
         <div class="val"><code id="cmd">—</code><button class="copy" data-copy="cmd">Copy</button></div>
         <span id="os-hint" style="font-size:12px;color:var(--muted);margin-top:8px">Detecting your OS...</span>
@@ -307,24 +306,21 @@
     var ua = navigator.userAgent || "";
     var isMac = /Macintosh|Mac OS X/.test(ua);
     var mode = $("mode").value;
-    var hosted = $("hosted-url").value.trim();
-    var hostedUrl = hosted || "https://YOUR-HF-ENDPOINT";
     if (isMac) {
       $("os-hint").textContent = "macOS detected";
       $("cmd").textContent = "curl -fsSL " + base + "/download/install.sh -o install.sh; chmod +x install.sh; "
         + "./install.sh --relay-url \"" + base + "\" --device-token \"" + token + "\""
-        + (mode === "hosted" ? " --inference-mode hosted --hosted-provider deepinfra --hosted-inference-url \"" + hostedUrl + "\"" : " --inference-mode local");
+        + (mode === "hosted" ? " --inference-mode hosted --hosted-provider relay" : " --inference-mode local");
       $("download").href = (RELAY || "") + "/download/install.sh";
       $("download").textContent = "Download install.sh";
     } else {
       $("os-hint").textContent = "Windows command (PowerShell)";
       $("cmd").textContent = "irm " + base + "/download/install.ps1 -OutFile install.ps1; "
         + "./install.ps1 -RelayUrl \"" + base + "\" -DeviceToken \"" + token + "\""
-        + (mode === "hosted" ? " -InferenceMode hosted -HostedProvider deepinfra -HostedInferenceUrl \"" + hostedUrl + "\"" : " -InferenceMode local");
+        + (mode === "hosted" ? " -InferenceMode hosted -HostedProvider relay" : " -InferenceMode local");
       $("download").href = (RELAY || "") + "/download/install.ps1";
       $("download").textContent = "Download install.ps1";
     }
-    $("hosted-url").style.display = mode === "hosted" ? "block" : "none";
   }
 
   $("tab-login").onclick = function () { setMode("login"); };
@@ -426,7 +422,6 @@
 
   var saved = localStorage.getItem("contour_token");
   $("mode").onchange = function () { if (saved || $("token").textContent !== "—") showDash($("token").textContent); };
-  $("hosted-url").oninput = function () { if (saved || $("token").textContent !== "—") showDash($("token").textContent); };
   if (saved) { showDash(saved); }
 })();
 </script>

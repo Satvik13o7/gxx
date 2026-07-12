@@ -19,7 +19,7 @@ ASK_CLOUD="${CONTOUR_ASK_CLOUD:-false}"
 VISION_MODEL="${CONTOUR_VISION_MODEL:-gemma4:e4b}"
 EMBED_MODEL="${CONTOUR_EMBED_MODEL:-nomic-embed-text}"
 INFERENCE_MODE="${CONTOUR_INFERENCE_MODE:-local}"
-HOSTED_PROVIDER="${CONTOUR_HOSTED_PROVIDER:-hf}"
+HOSTED_PROVIDER="${CONTOUR_HOSTED_PROVIDER:-relay}"
 HOSTED_INFERENCE_URL="${CONTOUR_HOSTED_INFERENCE_URL:-}"
 HOSTED_INFERENCE_KEY="${CONTOUR_HOSTED_INFERENCE_KEY:-}"
 DEEPINFRA_API_KEY="${DEEPINFRA_API_KEY:-}"
@@ -86,7 +86,7 @@ Usage: ./install.sh [options]
   --vision-model MODEL    Vision model tag (default gemma4:e4b)
   --embed-model MODEL     Embedding model tag (default nomic-embed-text)
   --inference-mode MODE   local|hosted (default local)
-  --hosted-provider NAME  hf|deepinfra|openai_compat (default hf)
+  --hosted-provider NAME  relay|hf|deepinfra|openai_compat (default relay)
   --hosted-inference-url  Hosted inference base URL
   --hosted-inference-key  Optional bearer token for hosted inference
   --deepinfra-api-key     Optional DeepInfra API key (used in hosted provider=deepinfra)
@@ -226,6 +226,23 @@ cat > "$LAUNCH_AGENT_PLIST" <<PLIST
   </array>
   <key>WorkingDirectory</key>
   <string>${PROJECT_ROOT}</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>CONTOUR_RELAY_URL</key>
+    <string>${RELAY_URL}</string>
+    <key>CONTOUR_DEVICE_TOKEN</key>
+    <string>${DEVICE_TOKEN}</string>
+    <key>CONTOUR_INFERENCE_MODE</key>
+    <string>${INFERENCE_MODE}</string>
+    <key>CONTOUR_HOSTED_PROVIDER</key>
+    <string>${HOSTED_PROVIDER}</string>
+    <key>CONTOUR_HOSTED_INFERENCE_URL</key>
+    <string>${HOSTED_INFERENCE_URL}</string>
+    <key>CONTOUR_HOSTED_INFERENCE_KEY</key>
+    <string>${HOSTED_INFERENCE_KEY}</string>
+    <key>DEEPINFRA_API_KEY</key>
+    <string>${DEEPINFRA_API_KEY}</string>
+  </dict>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>

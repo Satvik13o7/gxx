@@ -46,7 +46,7 @@ minority of events (thin/absent accessibility text). See the watcher stats
 # after installing Hermes Agent, Ollama, and Python 3.10+
 ./install/install.ps1 -RelayUrl "https://<your-relay>" -DeviceToken "<token>"   # add -AskCloud to opt in
 # hosted Gemma 4 (skip local vision model pull):
-./install/install.ps1 -RelayUrl "https://<your-relay>" -DeviceToken "<token>" -InferenceMode hosted -HostedInferenceUrl "https://<hf-endpoint>"
+./install/install.ps1 -RelayUrl "https://<your-relay>" -DeviceToken "<token>" -InferenceMode hosted -HostedProvider relay
 ```
 Then say to Hermes: **"what was I just doing?"** (`/reload-mcp` if Hermes is already running).
 
@@ -56,7 +56,7 @@ Then say to Hermes: **"what was I just doing?"** (`/reload-mcp` if Hermes is alr
 chmod +x ./install/install.sh
 ./install/install.sh --relay-url "https://<your-relay>" --device-token "<token>"   # add --ask-cloud to opt in
 # hosted Gemma 4 (skip local vision model pull):
-./install/install.sh --relay-url "https://<your-relay>" --device-token "<token>" --inference-mode hosted --hosted-inference-url "https://<hf-endpoint>"
+./install/install.sh --relay-url "https://<your-relay>" --device-token "<token>" --inference-mode hosted --hosted-provider relay
 ```
 Then run `/reload-mcp` in Hermes and ask: **"what was I just doing?"**.
 

@@ -46,7 +46,7 @@ def build_block(python: str, data_dir: str, relay_url: str, token: str, ask_clou
             "CONTOUR_DEVICE_TOKEN": token,
             "CONTOUR_ASK_CLOUD": "true" if ask_cloud else "false",
             "CONTOUR_INFERENCE_MODE": os.environ.get("CONTOUR_INFERENCE_MODE", "local"),
-            "CONTOUR_HOSTED_PROVIDER": os.environ.get("CONTOUR_HOSTED_PROVIDER", "hf"),
+            "CONTOUR_HOSTED_PROVIDER": os.environ.get("CONTOUR_HOSTED_PROVIDER", "relay"),
             "CONTOUR_HOSTED_INFERENCE_URL": os.environ.get("CONTOUR_HOSTED_INFERENCE_URL", ""),
             "CONTOUR_HOSTED_INFERENCE_KEY": os.environ.get("CONTOUR_HOSTED_INFERENCE_KEY", ""),
             "DEEPINFRA_API_KEY": os.environ.get("DEEPINFRA_API_KEY", ""),
@@ -130,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--stt-provider", default=os.environ.get("CONTOUR_STT_PROVIDER", "elevenlabs"))
     p.add_argument("--elevenlabs-stt-model", default=os.environ.get("ELEVENLABS_STT_MODEL", "scribe_v1"))
     p.add_argument("--inference-mode", default=os.environ.get("CONTOUR_INFERENCE_MODE", "local"))
-    p.add_argument("--hosted-provider", default=os.environ.get("CONTOUR_HOSTED_PROVIDER", "hf"))
+    p.add_argument("--hosted-provider", default=os.environ.get("CONTOUR_HOSTED_PROVIDER", "relay"))
     p.add_argument(
         "--hosted-inference-url",
         default=os.environ.get("CONTOUR_HOSTED_INFERENCE_URL", ""),
@@ -148,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
     ask_cloud = args.ask_cloud.strip().lower() in {"1", "true", "yes", "on"}
     enable_voice = args.enable_voice.strip().lower() in {"1", "true", "yes", "on"}
     os.environ["CONTOUR_INFERENCE_MODE"] = (args.inference_mode or "local").strip().lower()
-    os.environ["CONTOUR_HOSTED_PROVIDER"] = (args.hosted_provider or "hf").strip().lower()
+    os.environ["CONTOUR_HOSTED_PROVIDER"] = (args.hosted_provider or "relay").strip().lower()
     os.environ["CONTOUR_HOSTED_INFERENCE_URL"] = (args.hosted_inference_url or "").strip()
     os.environ["CONTOUR_HOSTED_INFERENCE_KEY"] = (args.hosted_inference_key or "").strip()
     os.environ["DEEPINFRA_API_KEY"] = (args.deepinfra_api_key or "").strip()

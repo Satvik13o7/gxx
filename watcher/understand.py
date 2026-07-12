@@ -16,6 +16,7 @@ import json
 import logging
 import re
 import base64
+import os
 
 import numpy as np
 
@@ -68,6 +69,7 @@ class Understanding:
 
     def _describe_hosted(self, image: bytes | str, uia_text: str = "") -> str:
         import httpx
+        from mcp_server.relay_client import RelayClient, RelayError
 
         prompt = _DESCRIBE_PROMPT
         if uia_text:
@@ -78,6 +80,15 @@ class Understanding:
         else:
             with open(image, "rb") as f:
                 img_bytes = f.read()
+
+        use_relay = config.HOSTED_PROVIDER == "relay" or not config.HOSTED_INFERENCE_URL
+        if use_relay and os.environ.get("CONTOUR_RELAY_URL"):
+            try:
+                out = RelayClient().vision(prompt=prompt, image=img_bytes, model=config.HOSTED_VISION_MODEL)
+                return out.get("content", "")
+            except RelayError as e:
+                log.warning("relay vision failed (%s), falling back to direct hosted/local", e)
+
         data_url = "data:image/png;base64," + base64.b64encode(img_bytes).decode("ascii")
 
         base = config.HOSTED_INFERENCE_URL.rstrip("/")
