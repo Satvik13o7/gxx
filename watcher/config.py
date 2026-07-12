@@ -30,7 +30,7 @@ def _env_float(name: str, default: float) -> float:
 
 # -- paths --------------------------------------------------------------------
 def data_dir() -> Path:
-    """Where the store lives. Defaults under Hermes' config dir on Windows."""
+    """Where the store lives. Defaults under Hermes' config dir by OS."""
     explicit = os.environ.get("CONTOUR_DATA_DIR")
     if explicit:
         return Path(os.path.expandvars(explicit)).expanduser()

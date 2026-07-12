@@ -18,6 +18,9 @@ from __future__ import annotations
 
 import logging
 import os
+import tarfile
+import zipfile
+from io import BytesIO
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -36,7 +39,60 @@ log = logging.getLogger("contour.relay.app")
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _WEBSITE = _PROJECT_ROOT / "website" / "index.html"
-_INSTALLER = _PROJECT_ROOT / "install" / "install.ps1"
+_INSTALLER_PS1 = _PROJECT_ROOT / "install" / "install.ps1"
+_INSTALLER_SH = _PROJECT_ROOT / "install" / "install.sh"
+
+_BUNDLE_PATHS = [
+    "datastore",
+    "mcp_server",
+    "watcher",
+    "skill",
+    "install",
+    "pyproject.toml",
+    "README.md",
+]
+
+
+def _iter_bundle_files() -> list[Path]:
+    files: list[Path] = []
+    for rel in _BUNDLE_PATHS:
+        p = _PROJECT_ROOT / rel
+        if not p.exists():
+            continue
+        if p.is_file():
+            files.append(p)
+            continue
+        for child in p.rglob("*"):
+            if child.is_dir():
+                continue
+            if "__pycache__" in child.parts:
+                continue
+            files.append(child)
+    return files
+
+
+def _bundle_zip_bytes() -> bytes:
+    files = _iter_bundle_files()
+    if not files:
+        raise HTTPException(status_code=503, detail="client bundle unavailable")
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for src in files:
+            arc = src.relative_to(_PROJECT_ROOT)
+            zf.write(src, arcname=str(arc))
+    return buf.getvalue()
+
+
+def _bundle_targz_bytes() -> bytes:
+    files = _iter_bundle_files()
+    if not files:
+        raise HTTPException(status_code=503, detail="client bundle unavailable")
+    buf = BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        for src in files:
+            arc = src.relative_to(_PROJECT_ROOT)
+            tf.add(src, arcname=str(arc), recursive=False)
+    return buf.getvalue()
 
 
 class SearchReq(BaseModel):
@@ -207,10 +263,36 @@ def create_app(
 
     @app.get("/download/install.ps1")
     def download_installer():
-        if not _INSTALLER.exists():
+        if not _INSTALLER_PS1.exists():
             raise HTTPException(status_code=404, detail="installer not found")
         return FileResponse(
-            _INSTALLER, media_type="text/plain", filename="install.ps1"
+            _INSTALLER_PS1, media_type="text/plain", filename="install.ps1"
+        )
+
+    @app.get("/download/install.sh")
+    def download_installer_sh():
+        if not _INSTALLER_SH.exists():
+            raise HTTPException(status_code=404, detail="installer not found")
+        return FileResponse(
+            _INSTALLER_SH, media_type="text/plain", filename="install.sh"
+        )
+
+    @app.get("/download/client.zip")
+    def download_client_zip() -> Response:
+        payload = _bundle_zip_bytes()
+        return Response(
+            content=payload,
+            media_type="application/zip",
+            headers={"Content-Disposition": 'attachment; filename="contour-client.zip"'},
+        )
+
+    @app.get("/download/client.tar.gz")
+    def download_client_targz() -> Response:
+        payload = _bundle_targz_bytes()
+        return Response(
+            content=payload,
+            media_type="application/gzip",
+            headers={"Content-Disposition": 'attachment; filename="contour-client.tar.gz"'},
         )
 
     @app.get("/health")

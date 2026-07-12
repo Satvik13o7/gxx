@@ -1,13 +1,19 @@
 FROM python:3.12-slim
 
 WORKDIR /app
-COPY requirements.txt .
+COPY relay/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY pii.py ratelimit.py app.py ./
-# package layout so `relay.app` imports resolve
-RUN mkdir -p /app/relay && touch /app/relay/__init__.py && \
-    cp pii.py ratelimit.py app.py /app/relay/
+COPY relay/pii.py relay/ratelimit.py relay/auth.py relay/app.py /app/relay/
+COPY relay/__init__.py /app/relay/__init__.py
+COPY website /app/website
+COPY install /app/install
+COPY datastore /app/datastore
+COPY watcher /app/watcher
+COPY mcp_server /app/mcp_server
+COPY skill /app/skill
+COPY pyproject.toml /app/pyproject.toml
+COPY README.md /app/README.md
 ENV PYTHONPATH=/app
 
 # Required env at deploy time (Railway/Fly.io secrets):

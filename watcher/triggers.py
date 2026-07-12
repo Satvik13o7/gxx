@@ -13,6 +13,9 @@ daemon wires them to ``winctx``/``GetLastInputInfo``/``FrameComparer``.
 from __future__ import annotations
 
 import logging
+import re
+import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 
@@ -30,6 +33,16 @@ class Trigger:
 
 def get_idle_seconds() -> float:
     """Seconds since last keyboard/mouse input (0.0 if unavailable)."""
+    if sys.platform == "darwin":
+        try:
+            out = subprocess.check_output(["ioreg", "-c", "IOHIDSystem"], text=True, timeout=2)
+            m = re.search(r'"HIDIdleTime"\s*=\s*(\d+)', out)
+            if not m:
+                return 0.0
+            nanos = int(m.group(1))
+            return max(0.0, nanos / 1_000_000_000.0)
+        except Exception:  # noqa: BLE001
+            return 0.0
     try:
         import win32api
 

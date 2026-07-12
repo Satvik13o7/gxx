@@ -15,7 +15,7 @@ early as possible. Checkboxes track remaining work; most code is already built a
    - [ ] `OPENAI_API_KEY` — only if enabling opt-in `ask_cloud`.
 2. **Deploy** `relay/` to Railway or Fly.io (Dockerfile included):
    ```bash
-   cd relay && docker build -t contour-relay .
+   docker build -f relay/Dockerfile -t contour-relay .
    # set as deploy secrets / env:
    #   LINKUP_API_KEY=...          (search)
    #   ELEVENLABS_API_KEY=...      (voice / TTS)
@@ -43,14 +43,22 @@ early as possible. Checkboxes track remaining work; most code is already built a
 
 ## C. Install contour (the 5-minute path)
 
-8. [ ] From the site (or repo), run in PowerShell:
-   ```powershell
-   irm https://RELAY_URL/download/install.ps1 -OutFile install.ps1
-   ./install.ps1 -RelayUrl "https://RELAY_URL" -DeviceToken "contour_..."   # -AskCloud to opt in
-   ```
-   The installer: pulls `gemma4:e4b` + `nomic-embed-text`, installs contour deps, registers the
-   MCP server + skill into Hermes, wires the token, and starts the watcher scheduled task.
-9. [ ] Grant **microphone** permission (Settings → Privacy → Microphone).
+8. [ ] From the site (or repo), run the platform installer:
+   - Windows (PowerShell):
+     ```powershell
+     irm https://RELAY_URL/download/install.ps1 -OutFile install.ps1
+     ./install.ps1 -RelayUrl "https://RELAY_URL" -DeviceToken "contour_..."   # -AskCloud to opt in
+     ```
+   - macOS (Terminal):
+     ```bash
+     curl -fsSL https://RELAY_URL/download/install.sh -o install.sh
+     chmod +x install.sh
+     ./install.sh --relay-url "https://RELAY_URL" --device-token "contour_..."   # --ask-cloud to opt in
+     ```
+    The installer: pulls `gemma4:e4b` + `nomic-embed-text`, installs contour deps, registers the
+    MCP server + skill into Hermes, wires the token, and starts the watcher at login
+    (Scheduled Task on Windows, LaunchAgent on macOS).
+9. [ ] Grant **microphone** permission (OS Settings → Privacy / Microphone).
 10. [ ] In a running Hermes session, run `/reload-mcp` so it picks up the contour tools.
 
 ## D. Point Hermes' web search at the relay (zero-key search)

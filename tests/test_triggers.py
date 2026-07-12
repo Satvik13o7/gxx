@@ -1,4 +1,5 @@
 from watcher.triggers import TriggerEngine
+import watcher.triggers as tmod
 
 
 class Clock:
@@ -72,3 +73,10 @@ def test_visual_change_only_when_idle_and_over_threshold():
     score["v"] = 0.01  # below threshold
     clock.t += 5
     assert "VisualChange" not in kinds(eng.poll())
+
+
+def test_get_idle_seconds_darwin_fallback(monkeypatch):
+    sample = '    "HIDIdleTime" = 4000000000\n'
+    monkeypatch.setattr(tmod.sys, "platform", "darwin")
+    monkeypatch.setattr(tmod.subprocess, "check_output", lambda *a, **k: sample)
+    assert tmod.get_idle_seconds() == 4.0

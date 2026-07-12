@@ -138,3 +138,12 @@ def test_dashboard_and_installer_served(captured):
     dl = c.get("/download/install.ps1")
     assert dl.status_code == 200
     assert "contour installer" in dl.text.lower() or "param(" in dl.text.lower()
+    dl_sh = c.get("/download/install.sh")
+    assert dl_sh.status_code == 200
+    assert dl_sh.text.startswith("#!/usr/bin/env bash")
+    bundle_zip = c.get("/download/client.zip")
+    assert bundle_zip.status_code == 200
+    assert len(bundle_zip.content) > 1024
+    bundle_tgz = c.get("/download/client.tar.gz")
+    assert bundle_tgz.status_code == 200
+    assert len(bundle_tgz.content) > 1024

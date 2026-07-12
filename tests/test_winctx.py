@@ -1,3 +1,4 @@
+import watcher.winctx as winctx
 from watcher.winctx import content_ratio, is_thin
 
 
@@ -22,3 +23,12 @@ def test_is_thin_low_content_ratio():
     symbols = "─│┌┐└┘├┤┬┴┼ " * 20
     assert len(symbols) > 100
     assert is_thin(symbols, app="someapp") is True
+
+
+def test_foreground_window_info_mac_fallback(monkeypatch):
+    monkeypatch.setattr(winctx.sys, "platform", "darwin")
+    monkeypatch.setattr(winctx.subprocess, "check_output", lambda *a, **k: "Safari\tDocs\n")
+    hwnd, title, app = winctx._foreground_window_info()
+    assert app == "Safari"
+    assert title == "Docs"
+    assert isinstance(hwnd, int)

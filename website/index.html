@@ -179,15 +179,16 @@
         <div class="val"><code id="token">—</code><button class="copy" data-copy="token">Copy</button></div>
       </div>
       <div class="row">
-        <span class="k">Install (Windows PowerShell)</span>
+        <span class="k">Install command</span>
         <div class="val"><code id="cmd">—</code><button class="copy" data-copy="cmd">Copy</button></div>
-        <a class="btn ghost" id="download" href="#" style="align-self:flex-start;margin-top:4px">Download install.ps1</a>
+        <span id="os-hint" style="font-size:12px;color:var(--muted);margin-top:8px">Detecting your OS...</span>
+        <a class="btn ghost" id="download" href="#" style="align-self:flex-start;margin-top:4px">Download installer</a>
       </div>
       <div class="row">
         <span class="k">After install</span>
         <ol class="steps">
-          <li>Run the command above in PowerShell (needs Hermes Agent + Ollama installed).</li>
-          <li>Grant microphone permission when Windows asks.</li>
+          <li>Run the command above in your terminal (PowerShell on Windows, Terminal on macOS).</li>
+          <li>Grant microphone permission when prompted by your OS.</li>
           <li>Say to Hermes: <strong>“what was I just doing?”</strong></li>
         </ol>
       </div>
@@ -256,9 +257,21 @@
     $("dash").classList.add("show");
     $("token").textContent = token;
     var base = RELAY || "https://YOUR-RELAY";
-    $("cmd").textContent = "irm " + base + "/download/install.ps1 -OutFile install.ps1; "
-      + "./install.ps1 -RelayUrl \"" + base + "\" -DeviceToken \"" + token + "\"";
-    $("download").href = (RELAY || "") + "/download/install.ps1";
+    var ua = navigator.userAgent || "";
+    var isMac = /Macintosh|Mac OS X/.test(ua);
+    if (isMac) {
+      $("os-hint").textContent = "macOS detected";
+      $("cmd").textContent = "curl -fsSL " + base + "/download/install.sh -o install.sh; chmod +x install.sh; "
+        + "./install.sh --relay-url \"" + base + "\" --device-token \"" + token + "\"";
+      $("download").href = (RELAY || "") + "/download/install.sh";
+      $("download").textContent = "Download install.sh";
+    } else {
+      $("os-hint").textContent = "Windows command (PowerShell)";
+      $("cmd").textContent = "irm " + base + "/download/install.ps1 -OutFile install.ps1; "
+        + "./install.ps1 -RelayUrl \"" + base + "\" -DeviceToken \"" + token + "\"";
+      $("download").href = (RELAY || "") + "/download/install.ps1";
+      $("download").textContent = "Download install.ps1";
+    }
   }
 
   $("tab-login").onclick = function () { setMode("login"); };

@@ -39,7 +39,7 @@ minority of events (thin/absent accessibility text). See the watcher stats
 - `mcp_server/` — FastMCP stdio server exposing the store to Hermes
 - `skill/SKILL.md` — Hermes skill for activity Q&A + proactivity
 - `relay/` — deployable FastAPI proxy (search + opt-in cloud)
-- `install/` — `install.ps1` (Windows, primary), `install.sh`, `register_hermes.py`
+- `install/` — `install.ps1` (Windows), `install.sh` (macOS), `register_hermes.py`
 
 ## Install (Windows)
 ```powershell
@@ -48,9 +48,17 @@ minority of events (thin/absent accessibility text). See the watcher stats
 ```
 Then say to Hermes: **"what was I just doing?"** (`/reload-mcp` if Hermes is already running).
 
+## Install (macOS)
+```bash
+# after installing Hermes Agent, Ollama, and Python 3.10+
+chmod +x ./install/install.sh
+./install/install.sh --relay-url "https://<your-relay>" --device-token "<token>"   # add --ask-cloud to opt in
+```
+Then run `/reload-mcp` in Hermes and ask: **"what was I just doing?"**.
+
 ## Deploy the relay
 ```bash
-cd relay && docker build -t contour-relay .
+docker build -f relay/Dockerfile -t contour-relay .
 docker run -p 8080:8080 \
   -e LINKUP_API_KEY="..." \        # web search (preferred provider)
   -e ELEVENLABS_API_KEY="..." \    # voice output (TTS)
@@ -58,8 +66,10 @@ docker run -p 8080:8080 \
   -e CONTOUR_RELAY_DB="/data/relay.db" \
   contour-relay
 ```
-The relay also serves the signup/login/download dashboard at `/` and the installer at
-`/download/install.ps1`.
+The relay also serves the signup/login/download dashboard at `/` and installers at
+`/download/install.ps1` (Windows) and `/download/install.sh` (macOS). Installers
+auto-bootstrap the client bundle from `/download/client.zip` or
+`/download/client.tar.gz` when run outside a repo checkout.
 
 ## Develop / test
 ```bash

@@ -1,4 +1,4 @@
-"""Active-window context + accessibility (UIA) text extraction on Windows.
+"""Active-window context + accessibility text extraction.
 
 The UIA text is our *primary* content source and dedup key; the vision model is
 only the fallback when this text is absent or "thin". Windows-only libraries
@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import logging
 import re
+import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 
@@ -63,8 +65,34 @@ def is_thin(text: str, app: str = "", ratio: float | None = None) -> bool:
 
 
 # -- Windows extraction (guarded) --------------------------------------------
+def _mac_foreground_window_info() -> tuple[int, str, str]:
+    """Best-effort (pseudo_hwnd, window_title, app_name) on macOS via AppleScript."""
+    script = (
+        'tell application "System Events"\n'
+        'set p to first process whose frontmost is true\n'
+        'set appName to name of p\n'
+        'set winTitle to ""\n'
+        'try\n'
+        'set winTitle to name of front window of p\n'
+        'end try\n'
+        'return appName & "\\t" & winTitle\n'
+        'end tell'
+    )
+    try:
+        out = subprocess.check_output(["osascript", "-e", script], text=True, timeout=2).strip()
+        if not out:
+            return 0, "", ""
+        app, _, title = out.partition("\t")
+        pseudo = abs(hash((app, title))) % (2**31)
+        return pseudo, title.strip(), app.strip()
+    except Exception:  # noqa: BLE001
+        return 0, "", ""
+
+
 def _foreground_window_info() -> tuple[int, str, str]:
-    """(hwnd, window_title, app_name). Returns (0, '', '') if unavailable."""
+    """(window_id, window_title, app_name). Returns (0, '', '') if unavailable."""
+    if sys.platform == "darwin":
+        return _mac_foreground_window_info()
     try:
         import win32gui
         import win32process

@@ -37,6 +37,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
+$RuntimePython = ""
 $HermesDir = Join-Path $env:LOCALAPPDATA "hermes"
 $HermesConfig = Join-Path $HermesDir "config.yaml"
 $DataDir = Join-Path $HermesDir "contour"
@@ -45,6 +46,35 @@ function Step($n, $msg) { Write-Host "`n[$n] $msg" -ForegroundColor Cyan }
 function Warn($msg) { Write-Host "  ! $msg" -ForegroundColor Yellow }
 function Ok($msg) { Write-Host "  + $msg" -ForegroundColor Green }
 function Have($cmd) { return [bool](Get-Command $cmd -ErrorAction SilentlyContinue) }
+
+function Test-ProjectRoot($root) {
+    return (Test-Path (Join-Path $root "pyproject.toml")) -and (Test-Path (Join-Path $root "watcher"))
+}
+
+function Ensure-ProjectRoot {
+    if (Test-ProjectRoot $ProjectRoot) { return }
+    if (-not $RelayUrl) {
+        throw "Installer downloaded without project files and no -RelayUrl provided."
+    }
+    Step 0 "Downloading contour client bundle"
+    $target = Join-Path $env:LOCALAPPDATA "contour\client"
+    $zipPath = Join-Path $env:TEMP "contour-client.zip"
+    Invoke-WebRequest -Uri "$RelayUrl/download/client.zip" -OutFile $zipPath -UseBasicParsing
+    if (Test-Path $target) { Remove-Item -Recurse -Force $target }
+    New-Item -ItemType Directory -Force -Path $target | Out-Null
+    Expand-Archive -Path $zipPath -DestinationPath $target -Force
+    Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+    $script:ProjectRoot = $target
+    Ok "Client bundle extracted to $ProjectRoot"
+}
+
+function Ensure-Uv {
+    if (Have "uv") { return }
+    Warn "uv not found; installing via winget"
+    if (-not (Install-Winget "astral-sh.uv" "uv")) {
+        Warn "Could not install uv automatically; will use pip fallback."
+    }
+}
 
 # --- prerequisite helpers ----------------------------------------------------
 function Test-Admin {
@@ -103,6 +133,8 @@ if (-not $SkipPrereqs -and -not (Test-Admin)) {
     }
 }
 
+Ensure-ProjectRoot
+
 # 0. Prerequisites ------------------------------------------------------------
 if (-not $SkipPrereqs) {
     Step 0 "Installing prerequisites (Python, Ollama, Hermes) if missing"
@@ -142,6 +174,7 @@ if (-not (Have "python")) { throw "Python 3.10+ is required and was not found on
 $pyver = (python -c "import sys;print('%d.%d'%sys.version_info[:2])").Trim()
 Ok "Python $pyver"
 $Python = (Get-Command python).Source
+$RuntimePython = $Python
 
 # 2. Ollama + models ----------------------------------------------------------
 Step 2 "Ensuring Ollama + local models"
@@ -163,13 +196,15 @@ if (-not (Have "ollama")) {
 
 # 3. contour dependencies ---------------------------------------------------------
 Step 3 "Installing contour Python dependencies"
+Ensure-Uv
 if (Have "uv") {
     Push-Location $ProjectRoot; uv sync; Pop-Location
+    $venvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
+    if (Test-Path $venvPython) { $RuntimePython = $venvPython }
 } else {
     Warn "uv not found; falling back to pip."
     python -m pip install --user -e $ProjectRoot
 }
-python -m pip install --user --quiet pyyaml
 Ok "Dependencies installed"
 
 # 4. Hermes + voice -----------------------------------------------------------
@@ -187,10 +222,20 @@ if (-not (Have "hermes")) {
 Step 5 "Registering contour MCP server + skill into Hermes"
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 $askCloudStr = if ($AskCloud) { "true" } else { "false" }
-python (Join-Path $PSScriptRoot "register_hermes.py") `
-    --config $HermesConfig --python $Python `
-    --relay-url $RelayUrl --token $DeviceToken `
-    --data-dir $DataDir --ask-cloud $askCloudStr --enable-voice true
+if (Have "uv") {
+    Push-Location $ProjectRoot
+    uv run --with pyyaml python (Join-Path $ProjectRoot "install\register_hermes.py") `
+        --config $HermesConfig --python $RuntimePython `
+        --relay-url $RelayUrl --token $DeviceToken `
+        --data-dir $DataDir --ask-cloud $askCloudStr --enable-voice true
+    Pop-Location
+} else {
+    python -m pip install --user --quiet pyyaml
+    python (Join-Path $ProjectRoot "install\register_hermes.py") `
+        --config $HermesConfig --python $RuntimePython `
+        --relay-url $RelayUrl --token $DeviceToken `
+        --data-dir $DataDir --ask-cloud $askCloudStr --enable-voice true
+}
 
 $skillsDir = Join-Path $HermesDir "skills\contour-activity"
 New-Item -ItemType Directory -Force -Path $skillsDir | Out-Null
@@ -221,7 +266,7 @@ Warn "Screen capture is read locally by the watcher; nothing raw ever leaves the
 # 9. Start the watcher --------------------------------------------------------
 Step 9 "Starting the watcher (background)"
 $taskName = "contour-watcher"
-$action = New-ScheduledTaskAction -Execute $Python -Argument "-m watcher.daemon" -WorkingDirectory $ProjectRoot
+$action = New-ScheduledTaskAction -Execute $RuntimePython -Argument "-m watcher.daemon" -WorkingDirectory $ProjectRoot
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 try {
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Force `
@@ -230,7 +275,7 @@ try {
     Ok "Watcher scheduled task '$taskName' created and started."
 } catch {
     Warn "Could not register a scheduled task ($($_.Exception.Message)). Start manually:"
-    Warn "  cd `"$ProjectRoot`"; $Python -m watcher.daemon"
+    Warn "  cd `"$ProjectRoot`"; $RuntimePython -m watcher.daemon"
 }
 
 Write-Host "`nDone. Try saying to Hermes: " -NoNewline

@@ -14,14 +14,17 @@ Landing/dashboard (single page)
       │                                         (or Sign in ──▶ POST /login ──▶ same token)
       ▼
 Dashboard state (same page, no reload)
-      │  shows: device token · install one-liner (copy) · Download install.ps1 · next steps
+      │  shows: device token · install one-liner (copy) · Download installer for your OS · next steps
       ▼
-User copies the PowerShell one-liner and runs it
-      │  irm https://RELAY/download/install.ps1 -OutFile install.ps1
-      │  ./install.ps1 -RelayUrl "https://RELAY" -DeviceToken "contour_..."
+User copies the OS-specific one-liner and runs it
+      │  Windows: irm https://RELAY/download/install.ps1 -OutFile install.ps1
+      │           ./install.ps1 -RelayUrl "https://RELAY" -DeviceToken "contour_..."
+      │  macOS:   curl -fsSL https://RELAY/download/install.sh -o install.sh
+      │           chmod +x install.sh && ./install.sh --relay-url "https://RELAY" --device-token "contour_..."
       ▼
 Installer: pulls Gemma 4 + embeddings · installs deps · registers MCP + skill in Hermes ·
-           wires the token · starts the watcher
+            wires the token · starts the watcher
+           (if no repo checkout exists, installer auto-downloads a client bundle)
       ▼
 User grants microphone permission · says "what was I just doing?"
 ```
