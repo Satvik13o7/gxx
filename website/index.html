@@ -283,7 +283,6 @@
 (function () {
   var RELAY = window.location.origin && window.location.protocol.startsWith("http")
     ? window.location.origin : "";
-  var DEFAULT_HOSTED = "https://abtpqag3qpxyb1q4.us-east4.gcp.endpoints.huggingface.cloud";
   var $ = function (id) { return document.getElementById(id); };
   var mode = "login";
 
@@ -426,7 +425,6 @@
   };
 
   var saved = localStorage.getItem("contour_token");
-  if (!$("hosted-url").value) { $("hosted-url").value = DEFAULT_HOSTED; }
   $("mode").onchange = function () { if (saved || $("token").textContent !== "—") showDash($("token").textContent); };
   $("hosted-url").oninput = function () { if (saved || $("token").textContent !== "—") showDash($("token").textContent); };
   if (saved) { showDash(saved); }
