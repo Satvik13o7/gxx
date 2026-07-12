@@ -140,6 +140,23 @@ def test_visualchange_low_score_skips_vision(parts, monkeypatch):
     assert daemon.stats["skipped"] >= 1
 
 
+def test_stale_frame_switch_avoids_repeated_wallpaper_like_vision(parts):
+    daemon, store, u, ctx, screen = parts
+    ctx.set(app="figma", title="board", uia_text="")
+    daemon.process(Trigger("AppSwitch", ts=100.0))
+    assert u.describe_calls == 1
+
+    # Same captured frame bytes but a new foreground app/title: avoid another
+    # vision call and emit a generic app-grounded fallback instead.
+    ctx.set(app="Code", title="main.py", uia_text="")
+    daemon.process(Trigger("AppSwitch", ts=110.0))
+
+    assert u.describe_calls == 1
+    latest = store.recent(limit=1)[0]
+    assert latest["source"] == "uia"
+    assert "no fresh visual delta" in latest["summary"].lower()
+
+
 def test_writes_concept_files(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "CONCEPTS_ENABLED", True)
     monkeypatch.setattr(config, "CONCEPT_REFRESH_SECS", 1)

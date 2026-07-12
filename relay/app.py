@@ -43,6 +43,36 @@ _WEBSITE = _PROJECT_ROOT / "website" / "index.html"
 _INSTALLER_PS1 = _PROJECT_ROOT / "install" / "install.ps1"
 _INSTALLER_SH = _PROJECT_ROOT / "install" / "install.sh"
 
+
+def _load_local_env_files() -> None:
+    """Load `.env` / `vercel.env` for local runs without overriding real env vars."""
+    for name in (".env", "vercel.env"):
+        path = _PROJECT_ROOT / name
+        if not path.exists() or not path.is_file():
+            continue
+        try:
+            for raw in path.read_text(encoding="utf-8").splitlines():
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("export "):
+                    line = line[7:].strip()
+                if "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                if not key or key in os.environ:
+                    continue
+                value = value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+                    value = value[1:-1]
+                os.environ[key] = value
+        except OSError as e:
+            log.warning("failed loading %s: %s", path, e)
+
+
+_load_local_env_files()
+
 _BUNDLE_PATHS = [
     "datastore",
     "mcp_server",

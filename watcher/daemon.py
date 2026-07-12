@@ -20,6 +20,7 @@ import re
 import shutil
 import sys
 import time
+import hashlib
 from pathlib import Path
 
 from datastore import ActivityStore, ConceptStore, Observation
@@ -73,6 +74,7 @@ class WatcherDaemon:
         self._last_ts: float = -1e9
         self._last_vision_key: tuple[str, str, int] | None = None
         self._last_vision_ts: float = -1e9
+        self._last_frame_hash: str | None = None
         self._last_save_ts: float = -1e9
         self._last_optimize_ts: float = -1e9
         self.concepts = (
@@ -135,23 +137,51 @@ class WatcherDaemon:
                 self.stats["skipped"] += 1
                 return None
             frame = self.screen.grab_png()
-            desc = self.understanding.describe(frame, ctx.uia_text)
-            summary = desc.get("activity") or ""
-            obs = Observation(
-                summary=f"In {ctx.app or desc.get('app_or_context','')}: {summary}".strip(": "),
-                app=ctx.app or desc.get("app_or_context", ""),
-                window=ctx.title,
-                salient_text=desc.get("salient_text", ""),
-                transcription=(ctx.uia_text or desc.get("salient_text", "") or "")[:20000],
-                entities=desc.get("entities", []),
-                trigger=trigger.kind,
-                source="vision",
-                is_actionable=bool(desc.get("is_actionable")),
-                ts=int(now),
-            )
-            self._last_vision_key = key
-            self._last_vision_ts = now
-            self.stats["vision"] += 1
+            frame_hash = hashlib.blake2b(frame, digest_size=12).hexdigest()
+            last_key = self._last_vision_key
+            app_switched = bool(last_key is not None and (ctx.app, ctx.title) != (last_key[0], last_key[1]))
+            if (
+                app_switched
+                and self._last_frame_hash is not None
+                and frame_hash == self._last_frame_hash
+            ):
+                # Likely stale capture (same pixels while foreground app/window changed).
+                # Avoid repeating generic wallpaper-like vision summaries.
+                fallback = f"In {ctx.app or 'current app'}: active window changed (no fresh visual delta)"
+                obs = Observation(
+                    summary=fallback,
+                    app=ctx.app,
+                    window=ctx.title,
+                    salient_text="",
+                    transcription=(ctx.uia_text or "")[:20000],
+                    trigger=trigger.kind,
+                    source="uia",
+                    is_actionable=quick_actionable(ctx.uia_text),
+                    ts=int(now),
+                )
+                self.stats["uia"] += 1
+                self._last_vision_key = key
+                self._last_vision_ts = now
+                self._last_frame_hash = frame_hash
+            else:
+                desc = self.understanding.describe(frame, ctx.uia_text)
+                summary = desc.get("activity") or ""
+                obs = Observation(
+                    summary=f"In {ctx.app or desc.get('app_or_context','')}: {summary}".strip(": "),
+                    app=ctx.app or desc.get("app_or_context", ""),
+                    window=ctx.title,
+                    salient_text=desc.get("salient_text", ""),
+                    transcription=(ctx.uia_text or desc.get("salient_text", "") or "")[:20000],
+                    entities=desc.get("entities", []),
+                    trigger=trigger.kind,
+                    source="vision",
+                    is_actionable=bool(desc.get("is_actionable")),
+                    ts=int(now),
+                )
+                self._last_vision_key = key
+                self._last_vision_ts = now
+                self._last_frame_hash = frame_hash
+                self.stats["vision"] += 1
 
         emb = self.understanding.embed(obs.hash_text())
         rid = self.store.add(obs, embedding=emb, dedup=not hard, heartbeat_secs=self.heartbeat)
@@ -250,7 +280,7 @@ def main() -> int:
     store = ActivityStore(config.data_dir(), dim=config.EMBED_DIM)
     understanding = Understanding()
     ctx = ContextProvider(ttl=1.0)
-    screen = ScreenCapturer(monitor=1)
+    screen = ScreenCapturer(monitor=config.CAPTURE_MONITOR)
     try:
         from .gate import ProactiveGate
 

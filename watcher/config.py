@@ -60,6 +60,7 @@ TYPING_PAUSE_SECS = _env_float("CONTOUR_TYPING_PAUSE", 2.0)
 IDLE_SECS = _env_float("CONTOUR_IDLE_SECS", 30.0)
 HEARTBEAT_SECS = _env_int("CONTOUR_HEARTBEAT_SECS", 30)
 DOWNSCALE_FACTOR = _env_int("CONTOUR_DOWNSCALE", 4)
+CAPTURE_MONITOR = _env_int("CONTOUR_CAPTURE_MONITOR", 1)
 
 # "thin" accessibility-text heuristic (screenpipe): escalate to vision below these.
 THIN_MIN_CHARS = _env_int("CONTOUR_THIN_MIN_CHARS", 100)

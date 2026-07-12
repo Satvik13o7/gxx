@@ -12,6 +12,7 @@ hardware or a network.
 from __future__ import annotations
 
 import logging
+import time
 
 log = logging.getLogger("contour.voice")
 
@@ -45,9 +46,15 @@ def speak(text: str, relay=None, player=play_pcm16, voice_id: str = "") -> bool:
         from mcp_server.relay_client import RelayClient
 
         relay = RelayClient()
-    try:
-        audio, rate = relay.tts(text, voice_id=voice_id)
-    except Exception as e:  # noqa: BLE001 - speaking must never crash the caller
-        log.warning("tts request failed: %s", e)
-        return False
+    audio = b""
+    rate = 16000
+    for attempt in range(3):
+        try:
+            audio, rate = relay.tts(text, voice_id=voice_id)
+            break
+        except Exception as e:  # noqa: BLE001 - speaking must never crash the caller
+            if attempt == 2:
+                log.warning("tts request failed after retries: %s", e)
+                return False
+            time.sleep(0.25 * (attempt + 1))
     return player(audio, rate)

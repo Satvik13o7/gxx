@@ -4,8 +4,7 @@ WORKDIR /app
 COPY relay/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY relay/pii.py relay/ratelimit.py relay/auth.py relay/app.py /app/relay/
-COPY relay/__init__.py /app/relay/__init__.py
+COPY relay/*.py /app/relay/
 COPY website /app/website
 COPY install /app/install
 COPY datastore /app/datastore
