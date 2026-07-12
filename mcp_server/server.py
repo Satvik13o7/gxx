@@ -100,6 +100,8 @@ def query_datastore(query: str, limit: int = 10, since_minutes: int | None = Non
         try:
             qvec = _understanding.embed(query, is_query=True)
             results = store.query(qvec, limit=limit, since_ts=since_ts)
+            if not results:
+                results = store.recent(limit=limit, since_ts=since_ts)
         except Exception as e:  # noqa: BLE001 - fall back to recency if Ollama down
             log.warning("semantic query failed (%s); returning recent rows", e)
             results = store.recent(limit=limit, since_ts=since_ts)
