@@ -6,12 +6,14 @@ vision to a minority, and a semantic query returning the right activity.
 """
 
 import asyncio
+import contextlib
 import json
 
 import numpy as np
 import pytest
 
 from datastore import ActivityStore
+from watcher import config
 from watcher.daemon import WatcherDaemon
 from watcher.gate import ProactiveGate
 from watcher.triggers import Trigger
@@ -85,6 +87,11 @@ def test_full_pipeline_capture_dedup_and_query(tmp_path, monkeypatch):
     import mcp_server.server as s
     importlib.reload(s)
     monkeypatch.setattr(s._understanding, "embed", u.embed)
+    # Match the daemon's explicit numpy backend so both sides read/write the
+    # same index file regardless of whether turbovec is installed on this box.
+    monkeypatch.setattr(
+        s, "open_store", lambda: contextlib.closing(ActivityStore(config.data_dir(), dim=768, backend="numpy"))
+    )
 
     res = json.loads(s.query_datastore("what python code was I editing", limit=2))
     assert res["count"] == 2
