@@ -49,7 +49,12 @@ def summarize_uia(app: str, title: str, uia_text: str, limit: int = 400) -> tupl
     """Cheap (summary, salient_text) from accessibility text — no model call."""
     where = " ".join(p for p in (app, f"— {title}" if title else "") if p).strip(" —")
     snippet = " ".join((uia_text or "").split())[:limit]
-    summary = f"In {where}: {snippet}" if where else snippet
+    if where and snippet:
+        summary = f"In {where}: {snippet}"
+    elif where:
+        summary = f"In {where}"
+    else:
+        summary = snippet
     return summary or where or "(no text)", snippet
 
 
@@ -93,6 +98,15 @@ class WatcherDaemon:
         ctx = self.ctx.get()
 
         thin = is_thin(ctx.uia_text, ctx.app, ctx.content_ratio)
+        # macOS currently has no UIA extractor here; avoid vision hallucinating a
+        # static wallpaper when there is no textual context at all.
+        if (
+            thin
+            and sys.platform == "darwin"
+            and not (ctx.uia_text or "").strip()
+            and (ctx.app or "").lower() not in config.PREFER_VISION_APPS
+        ):
+            thin = False
 
         if not thin:
             summary, salient = summarize_uia(ctx.app, ctx.title, ctx.uia_text)

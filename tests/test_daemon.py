@@ -154,7 +154,21 @@ def test_stale_frame_switch_avoids_repeated_wallpaper_like_vision(parts):
     assert u.describe_calls == 1
     latest = store.recent(limit=1)[0]
     assert latest["source"] == "uia"
-    assert "no fresh visual delta" in latest["summary"].lower()
+    summary = latest["summary"].lower()
+    assert ("no fresh visual delta" in summary) or ("in code" in summary)
+
+
+def test_macos_empty_uia_avoids_vision(parts, monkeypatch):
+    daemon, store, u, ctx, screen = parts
+    monkeypatch.setattr("watcher.daemon.sys.platform", "darwin")
+    ctx.set(app="Code", title="main.py", uia_text="")
+
+    rid = daemon.process(Trigger("AppSwitch", ts=120.0))
+    assert rid is not None
+    assert u.describe_calls == 0
+    latest = store.recent(limit=1)[0]
+    assert latest["source"] == "uia"
+    assert "in code" in latest["summary"].lower()
 
 
 def test_writes_concept_files(tmp_path, monkeypatch):
