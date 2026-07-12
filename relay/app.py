@@ -261,6 +261,19 @@ def create_app(
             return _WEBSITE.read_text(encoding="utf-8")
         return "<h1>contour relay</h1><p>dashboard not found</p>"
 
+    @app.get("/docs/{name}", response_class=HTMLResponse)
+    def docs(name: str) -> str:
+        allowed = {"steps": "STEPS.md", "user-flow": "USER_FLOW.md", "readme": "README.md"}
+        rel = allowed.get(name)
+        if rel is None:
+            raise HTTPException(status_code=404, detail="doc not found")
+        path = _PROJECT_ROOT / rel
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="doc not found")
+        text = path.read_text(encoding="utf-8")
+        escaped = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        return f"<!doctype html><meta charset='utf-8'><title>{rel}</title><pre style='white-space:pre-wrap;font-family:ui-monospace,monospace;max-width:860px;margin:40px auto;padding:0 20px;line-height:1.6'>{escaped}</pre>"
+
     @app.get("/download/install.ps1")
     def download_installer():
         if not _INSTALLER_PS1.exists():
