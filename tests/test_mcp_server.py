@@ -35,6 +35,7 @@ def test_all_tools_registered(server):
         "capture_and_store",
         "optimize_datastore",
         "query_datastore",
+        "query_memory_hybrid",
         "speak",
         "web_search",
     ]
@@ -103,3 +104,20 @@ def test_web_search_handles_relay_error(server, monkeypatch):
     out = json.loads(server.web_search("anything", limit=5))
     assert out["ok"] is False
     assert "boom" in out["error"]
+
+
+def test_query_memory_hybrid_includes_concepts(server, monkeypatch):
+    server.capture_and_store("editing main.py in VS Code", app="Code", window="main.py")
+
+    class DummyConcepts:
+        def __init__(self, *a, **kw):
+            pass
+
+        def search(self, query, limit_contexts=3, hits_per_context=5):
+            return [{"context": "code", "concept_snippet": "editing", "transcription_hits": ["main.py"]}]
+
+    monkeypatch.setattr(server, "ConceptStore", DummyConcepts)
+    out = json.loads(server.query_memory_hybrid("editing", limit=3, include_concepts=True))
+    assert out["count"] >= 1
+    assert out["concept_count"] == 1
+    assert out["concepts"][0]["context"] == "code"

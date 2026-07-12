@@ -32,7 +32,7 @@ log = logging.getLogger("contour.mcp")
 # Ensure the package root is importable when launched via `uv run server.py`.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from datastore import ActivityStore, Observation  # noqa: E402
+from datastore import ActivityStore, ConceptStore, Observation  # noqa: E402
 from datastore.pii import scrub  # noqa: E402
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 from watcher import config  # noqa: E402
@@ -98,9 +98,11 @@ def query_datastore(query: str, limit: int = 10, since_minutes: int | None = Non
     since_ts = int(time.time()) - since_minutes * 60 if since_minutes else None
     with open_store() as store:
         try:
-            qvec = _understanding.embed(query, is_query=True)
-            results = store.query(qvec, limit=limit, since_ts=since_ts)
-            if not results:
+            q = (query or "").strip()
+            if q:
+                qvec = _understanding.embed(q, is_query=True)
+                results = store.query_hybrid(q, qvec, limit=limit, since_ts=since_ts)
+            else:
                 results = store.recent(limit=limit, since_ts=since_ts)
         except Exception as e:  # noqa: BLE001 - fall back to recency if Ollama down
             log.warning("semantic query failed (%s); returning recent rows", e)
@@ -113,11 +115,64 @@ def query_datastore(query: str, limit: int = 10, since_minutes: int | None = Non
             "window": r.get("window", ""),
             "summary": r.get("summary", ""),
             "salient_text": r.get("salient_text", ""),
+            "transcription": r.get("transcription", ""),
             "score": round(r["score"], 4) if "score" in r else None,
         }
         for r in results
     ]
     return json.dumps({"count": len(slim), "results": slim}, ensure_ascii=False)
+
+
+@mcp.tool()
+def query_memory_hybrid(
+    query: str,
+    limit: int = 10,
+    since_minutes: int | None = None,
+    include_concepts: bool = True,
+) -> str:
+    """Hybrid memory query: exact transcription + semantic + optional concept files.
+
+    Use this when you want both grep-like exact matches and semantic recall.
+    """
+    since_ts = int(time.time()) - since_minutes * 60 if since_minutes else None
+    with open_store() as store:
+        try:
+            q = (query or "").strip()
+            if q:
+                qvec = _understanding.embed(q, is_query=True)
+                results = store.query_hybrid(q, qvec, limit=limit, since_ts=since_ts)
+            else:
+                results = store.recent(limit=limit, since_ts=since_ts)
+        except Exception as e:  # noqa: BLE001
+            log.warning("hybrid query failed (%s); returning recent rows", e)
+            results = store.recent(limit=limit, since_ts=since_ts)
+
+    concepts = []
+    if include_concepts and (query or "").strip():
+        try:
+            concepts = ConceptStore(config.data_dir(), refresh_secs=config.CONCEPT_REFRESH_SECS).search(
+                query, limit_contexts=3, hits_per_context=5
+            )
+        except Exception as e:  # noqa: BLE001
+            log.warning("concept search failed: %s", e)
+
+    slim = [
+        {
+            "id": r["id"],
+            "time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(r["ts"])),
+            "app": r.get("app", ""),
+            "window": r.get("window", ""),
+            "summary": r.get("summary", ""),
+            "salient_text": r.get("salient_text", ""),
+            "transcription": r.get("transcription", ""),
+            "score": round(r["score"], 4) if "score" in r else None,
+        }
+        for r in results
+    ]
+    return json.dumps(
+        {"count": len(slim), "results": slim, "concept_count": len(concepts), "concepts": concepts},
+        ensure_ascii=False,
+    )
 
 
 @mcp.tool()

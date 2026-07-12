@@ -88,3 +88,36 @@ def test_persistence_round_trip(tmp_path):
         results = s2.query(v, limit=1)
         assert results and results[0]["id"] == rid
         assert results[0]["summary"] == "persist me"
+
+
+def test_exact_query_matches_transcription(store):
+    store.add(
+        Observation(
+            summary="terminal session",
+            salient_text="",
+            transcription="kubectl get pods --all-namespaces",
+            trigger="AppSwitch",
+        ),
+        embedding=_vec(11),
+    )
+    out = store.query_exact("kubectl pods", limit=5)
+    assert out
+    assert "kubectl" in out[0]["transcription"]
+
+
+def test_hybrid_query_merges_exact_and_semantic(store):
+    v_code = _vec(21)
+    v_misc = _vec(22)
+    code_id = store.add(
+        Observation(summary="editing app.py", transcription="python app.py", trigger="AppSwitch"),
+        embedding=v_code,
+    )
+    grep_id = store.add(
+        Observation(summary="terminal", transcription="docker compose up", trigger="AppSwitch"),
+        embedding=v_misc,
+    )
+
+    results = store.query_hybrid("docker", v_code, limit=5)
+    ids = [r["id"] for r in results]
+    assert code_id in ids
+    assert grep_id in ids

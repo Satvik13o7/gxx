@@ -86,3 +86,19 @@ INTERJECTION_COOLDOWN_SECS = _env_int("CONTOUR_INTERJECTION_COOLDOWN", 60)
 # (e.g. the Hermes MCP server) can see fresh data without waiting for a clean
 # shutdown. 0 disables periodic saving (save on close() only).
 INDEX_SAVE_SECS = _env_int("CONTOUR_INDEX_SAVE_SECS", 20)
+
+# -- memory maintenance / concept files ---------------------------------------
+CONCEPTS_ENABLED = _env("CONTOUR_CONCEPTS_ENABLED", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+CONCEPT_REFRESH_SECS = _env_int("CONTOUR_CONCEPT_REFRESH_SECS", 120)
+OPTIMIZE_INTERVAL_SECS = _env_int("CONTOUR_OPTIMIZE_INTERVAL_SECS", 300)
+MAX_STORE_MB = _env_int("CONTOUR_MAX_STORE_MB", 1024)
+MIN_FREE_MB = _env_int("CONTOUR_MIN_FREE_MB", 1024)
+
+# Additional Gemma-call dampening when vision is needed.
+VISION_MIN_INTERVAL_SECS = _env_float("CONTOUR_VISION_MIN_INTERVAL_SECS", 8.0)
+VISION_VISUAL_SCORE_MIN = _env_float("CONTOUR_VISION_VISUAL_SCORE_MIN", 0.12)

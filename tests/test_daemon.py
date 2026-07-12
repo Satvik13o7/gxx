@@ -3,6 +3,7 @@ import pytest
 
 from datastore import ActivityStore
 from watcher.daemon import WatcherDaemon
+from watcher import config
 from watcher.triggers import Trigger
 from watcher.winctx import WindowContext, content_ratio
 
@@ -127,3 +128,30 @@ def test_vision_fraction_metric_is_minority_on_static_screen(parts):
     assert daemon.stats["vision"] == 0
     assert daemon.stats["skipped"] >= 8
     assert len(store.recent(limit=99)) == 1
+
+
+def test_visualchange_low_score_skips_vision(parts, monkeypatch):
+    daemon, store, u, ctx, screen = parts
+    monkeypatch.setattr(config, "VISION_VISUAL_SCORE_MIN", 0.5)
+    ctx.set(app="figma", title="board", uia_text="")  # thin -> vision path candidate
+    skipped = daemon.process(Trigger("VisualChange", ts=100.0, meta={"score": 0.1}))
+    assert skipped is None
+    assert u.describe_calls == 0
+    assert daemon.stats["skipped"] >= 1
+
+
+def test_writes_concept_files(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "CONCEPTS_ENABLED", True)
+    monkeypatch.setattr(config, "CONCEPT_REFRESH_SECS", 1)
+    store = ActivityStore(tmp_path, dim=DIM, backend="numpy")
+    u = FakeUnderstanding()
+    ctx = FakeCtx(app="Code", title="main.py", uia_text=LONG_TEXT)
+    daemon = WatcherDaemon(store, u, ctx, screen=FakeScreen(), heartbeat_secs=30)
+
+    daemon.process(Trigger("AppSwitch", ts=100.0))
+    daemon.process(Trigger("AppSwitch", ts=102.0))
+
+    folder = tmp_path / "concepts" / "code"
+    assert (folder / "transcription.md").exists()
+    assert (folder / "concept.md").exists()
+    store.close()

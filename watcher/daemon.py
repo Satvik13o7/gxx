@@ -15,11 +15,14 @@ without a screen, Ollama, or Windows.
 from __future__ import annotations
 
 import logging
+import os
 import re
+import shutil
 import sys
 import time
+from pathlib import Path
 
-from datastore import ActivityStore, Observation
+from datastore import ActivityStore, ConceptStore, Observation
 from datastore.texthash import content_hash
 
 from . import config
@@ -68,9 +71,15 @@ class WatcherDaemon:
 
         self._last_hash: int | None = None
         self._last_ts: float = -1e9
-        self._last_vision_key: tuple[str, str] | None = None
+        self._last_vision_key: tuple[str, str, int] | None = None
         self._last_vision_ts: float = -1e9
         self._last_save_ts: float = -1e9
+        self._last_optimize_ts: float = -1e9
+        self.concepts = (
+            ConceptStore(self.store.data_dir, refresh_secs=config.CONCEPT_REFRESH_SECS)
+            if config.CONCEPTS_ENABLED
+            else None
+        )
         # counters for the "fraction of triggers that reach vision" metric
         self.stats = {"triggers": 0, "skipped": 0, "uia": 0, "vision": 0}
 
@@ -90,6 +99,7 @@ class WatcherDaemon:
                 app=ctx.app,
                 window=ctx.title,
                 salient_text=salient,
+                transcription=(ctx.uia_text or "")[:20000],
                 trigger=trigger.kind,
                 source="uia",
                 is_actionable=quick_actionable(ctx.uia_text),
@@ -103,11 +113,23 @@ class WatcherDaemon:
             self.stats["uia"] += 1
         else:
             # vision fallback: avoid re-running it on the same static window (soft)
-            key = (ctx.app, ctx.title)
-            if not hard and key == self._last_vision_key and (now - self._last_vision_ts) < self.heartbeat:
+            ui_hash = content_hash((ctx.uia_text or "")[:4000])
+            key = (ctx.app, ctx.title, ui_hash)
+            min_gap = max(self.heartbeat, float(config.VISION_MIN_INTERVAL_SECS))
+            if (
+                not hard
+                and key == self._last_vision_key
+                and (now - self._last_vision_ts) < min_gap
+            ):
                 self.stats["skipped"] += 1
                 log.debug("skip (vision cooldown): %s", trigger.kind)
                 return None
+            if not hard and trigger.kind == "VisualChange":
+                score = float((trigger.meta or {}).get("score", 0.0))
+                if score < float(config.VISION_VISUAL_SCORE_MIN):
+                    self.stats["skipped"] += 1
+                    log.debug("skip (vision low-score %.4f): %s", score, trigger.kind)
+                    return None
             if self.screen is None:
                 log.debug("thin text but no screen capturer; skipping")
                 self.stats["skipped"] += 1
@@ -120,6 +142,7 @@ class WatcherDaemon:
                 app=ctx.app or desc.get("app_or_context", ""),
                 window=ctx.title,
                 salient_text=desc.get("salient_text", ""),
+                transcription=(ctx.uia_text or desc.get("salient_text", "") or "")[:20000],
                 entities=desc.get("entities", []),
                 trigger=trigger.kind,
                 source="vision",
@@ -142,6 +165,20 @@ class WatcherDaemon:
             except Exception as e:  # noqa: BLE001 - persistence must never crash capture
                 log.warning("index save failed: %s", e)
 
+        if self.concepts is not None:
+            try:
+                self.concepts.update(obs)
+            except Exception as e:  # noqa: BLE001
+                log.warning("concept update failed: %s", e)
+
+        if config.OPTIMIZE_INTERVAL_SECS > 0 and (now - self._last_optimize_ts) >= config.OPTIMIZE_INTERVAL_SECS:
+            try:
+                if self._should_optimize():
+                    self.store.optimize(now=int(now))
+                self._last_optimize_ts = now
+            except Exception as e:  # noqa: BLE001
+                log.warning("background optimize failed: %s", e)
+
         if self.gate is not None:
             try:
                 self.gate.evaluate(obs, trigger, now=now)
@@ -155,6 +192,25 @@ class WatcherDaemon:
             and chash == self._last_hash
             and (now - self._last_ts) < self.heartbeat
         )
+
+    def _should_optimize(self) -> bool:
+        max_bytes = max(1, config.MAX_STORE_MB) * 1024 * 1024
+        total = 0
+        for root, _, files in os.walk(self.store.data_dir):
+            for name in files:
+                try:
+                    total += (Path(root) / name).stat().st_size
+                except OSError:
+                    continue
+        if total >= max_bytes:
+            return True
+
+        try:
+            usage = shutil.disk_usage(self.store.data_dir)
+            free_mb = usage.free // (1024 * 1024)
+            return free_mb <= max(1, config.MIN_FREE_MB)
+        except OSError:
+            return False
 
     # -- run loop -------------------------------------------------------------
     def run(self, poll_interval: float = config.FOREGROUND_POLL_INTERVAL) -> None:

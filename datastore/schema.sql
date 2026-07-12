@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS activity (
     window        TEXT,                  -- window title
     summary       TEXT NOT NULL,         -- distilled, embeddable description
     salient_text  TEXT,                  -- key on-screen text (from UIA or vision)
+    transcription TEXT,                  -- exact-ish transcription for keyword lookup
     entities_json TEXT,                  -- JSON array of notable entities
     tags          TEXT,                  -- comma-separated tags
     content_hash  INTEGER NOT NULL,      -- exact hash of the text content (dedup key)

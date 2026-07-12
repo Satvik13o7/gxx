@@ -12,6 +12,7 @@ metadata:
     tags: [productivity, memory, screen, voice]
     requires_tools:
       - mcp_contour_query_datastore
+      - mcp_contour_query_memory_hybrid
       - mcp_contour_optimize_datastore
       - mcp_contour_speak
     config:
@@ -29,9 +30,12 @@ that recent on-screen context would help answer. Also use it when deciding wheth
 to proactively surface something the watcher flagged.
 
 ## Quick Reference
-- `mcp_contour_query_datastore(query, limit=10, since_minutes=None)` — semantic search
-  over the local activity store. Returns JSON matches (summary, app, window, time,
-  score), most relevant first. This is your primary grounding source.
+- `mcp_contour_query_memory_hybrid(query, limit=10, since_minutes=None, include_concepts=True)`
+  — preferred recall path: combines exact transcription matches, semantic retrieval,
+  and concept-folder context snippets.
+- `mcp_contour_query_datastore(query, limit=10, since_minutes=None)` — semantic +
+  recent fallback over the local activity store. Use when you need a lighter query
+  without concept-file lookups.
 - `mcp_contour_capture_and_store(summary, app, window, salient_text, tags)` — record a
   new note/observation worth remembering.
 - `mcp_contour_optimize_datastore(retention_days=30, evict_after_days=3)` — housekeeping
@@ -42,10 +46,11 @@ to proactively surface something the watcher flagged.
   user enabled it at install. Never carries raw screen/audio.
 
 ## Procedure
-1. **Reactive Q&A**: call `mcp_contour_query_datastore` with the user's question as the
-   query. If the question is time-scoped ("in the last 20 minutes"), pass
-   `since_minutes`. Ground your answer in the returned rows; cite the app/window and
-   time briefly.
+1. **Reactive Q&A**: call `mcp_contour_query_memory_hybrid` with the user's question as
+   the query. If the question is time-scoped ("in the last 20 minutes"), pass
+   `since_minutes`. Ground your answer in both datastore rows and concept snippets;
+   cite app/window/time briefly. Fall back to `mcp_contour_query_datastore` only when
+   concept lookup isn't needed.
 2. **Needs live info too?** If the answer depends on current web information (docs,
    prices, news), combine the store results with Hermes' native `web_search` tool.
    Do not build a separate search path — use the built-in one.

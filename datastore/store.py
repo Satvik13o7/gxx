@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
 import time
 from dataclasses import dataclass, field
@@ -48,6 +49,7 @@ class Observation:
     app: str = ""
     window: str = ""
     salient_text: str = ""
+    transcription: str = ""  # raw-ish on-screen text for exact keyword search
     entities: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
     trigger: str = "Manual"
@@ -57,7 +59,9 @@ class Observation:
 
     def hash_text(self) -> str:
         """Text used for content/dedup hashing — the durable content, not chrome."""
-        return "\n".join(p for p in (self.summary, self.salient_text) if p)
+        return "\n".join(
+            p for p in (self.summary, self.salient_text, (self.transcription or "")[:4000]) if p
+        )
 
 
 class ActivityStore:
@@ -77,12 +81,70 @@ class ActivityStore:
         self.conn = sqlite3.connect(self.db_path)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(_SCHEMA)
+        self._ensure_schema_compat()
         self.conn.commit()
+
+        self._fts_enabled = self._setup_fts()
 
         self.index = VectorIndex.load(
             self.index_path, dim=dim, bit_width=bit_width, backend=backend
         )
         self.backend = self.index.backend
+
+    def _ensure_schema_compat(self) -> None:
+        cols = {
+            row["name"] for row in self.conn.execute("PRAGMA table_info(activity)").fetchall()
+        }
+        if "transcription" not in cols:
+            self.conn.execute("ALTER TABLE activity ADD COLUMN transcription TEXT DEFAULT ''")
+
+    def _setup_fts(self) -> bool:
+        """Create/maintain the FTS5 index used for exact keyword search."""
+        try:
+            self.conn.execute(
+                """
+                CREATE VIRTUAL TABLE IF NOT EXISTS activity_fts USING fts5(
+                    summary,
+                    salient_text,
+                    transcription,
+                    app,
+                    window,
+                    content='activity',
+                    content_rowid='id'
+                )
+                """
+            )
+            self.conn.execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS activity_ai AFTER INSERT ON activity BEGIN
+                  INSERT INTO activity_fts(rowid, summary, salient_text, transcription, app, window)
+                  VALUES (new.id, new.summary, new.salient_text, new.transcription, new.app, new.window);
+                END
+                """
+            )
+            self.conn.execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS activity_ad AFTER DELETE ON activity BEGIN
+                  INSERT INTO activity_fts(activity_fts, rowid, summary, salient_text, transcription, app, window)
+                  VALUES('delete', old.id, old.summary, old.salient_text, old.transcription, old.app, old.window);
+                END
+                """
+            )
+            self.conn.execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS activity_au AFTER UPDATE ON activity BEGIN
+                  INSERT INTO activity_fts(activity_fts, rowid, summary, salient_text, transcription, app, window)
+                  VALUES('delete', old.id, old.summary, old.salient_text, old.transcription, old.app, old.window);
+                  INSERT INTO activity_fts(rowid, summary, salient_text, transcription, app, window)
+                  VALUES (new.id, new.summary, new.salient_text, new.transcription, new.app, new.window);
+                END
+                """
+            )
+            self.conn.execute("INSERT INTO activity_fts(activity_fts) VALUES ('rebuild')")
+            return True
+        except sqlite3.OperationalError as e:
+            log.warning("fts disabled (%s); exact search falls back to LIKE", e)
+            return False
 
     # -- helpers --------------------------------------------------------------
     def _next_id(self) -> int:
@@ -134,9 +196,9 @@ class ActivityStore:
         nid = self._next_id()
         self.conn.execute(
             """INSERT INTO activity
-               (id, ts, app, window, summary, salient_text, entities_json, tags,
+               (id, ts, app, window, summary, salient_text, transcription, entities_json, tags,
                 content_hash, simhash, trigger, source, is_actionable, embedded)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 nid,
                 ts,
@@ -144,6 +206,7 @@ class ActivityStore:
                 obs.window,
                 obs.summary,
                 obs.salient_text,
+                obs.transcription,
                 json.dumps(obs.entities),
                 ",".join(obs.tags),
                 to_sqlite_int(chash),
@@ -199,6 +262,105 @@ class ActivityStore:
                 "SELECT * FROM activity ORDER BY ts DESC LIMIT ?", (limit,)
             ).fetchall()
         return [self._row_to_dict(r, None) for r in rows]
+
+    @staticmethod
+    def _fts_query(text: str) -> str:
+        tokens = re.findall(r"[A-Za-z0-9_]+", text or "")
+        if tokens:
+            return " AND ".join(tokens[:10])
+        escaped = (text or "").replace('"', '""').strip()
+        return f'"{escaped}"' if escaped else ""
+
+    def query_exact(self, query_text: str, limit: int = 10, since_ts: int | None = None) -> list[dict]:
+        q = (query_text or "").strip()
+        if not q:
+            return []
+
+        if self._fts_enabled:
+            fts_q = self._fts_query(q)
+            if not fts_q:
+                return []
+            if since_ts is not None:
+                rows = self.conn.execute(
+                    """
+                    SELECT a.*
+                    FROM activity_fts f
+                    JOIN activity a ON a.id = f.rowid
+                    WHERE activity_fts MATCH ? AND a.ts >= ?
+                    ORDER BY bm25(activity_fts), a.ts DESC
+                    LIMIT ?
+                    """,
+                    (fts_q, since_ts, limit),
+                ).fetchall()
+            else:
+                rows = self.conn.execute(
+                    """
+                    SELECT a.*
+                    FROM activity_fts f
+                    JOIN activity a ON a.id = f.rowid
+                    WHERE activity_fts MATCH ?
+                    ORDER BY bm25(activity_fts), a.ts DESC
+                    LIMIT ?
+                    """,
+                    (fts_q, limit),
+                ).fetchall()
+            return [self._row_to_dict(r, None) for r in rows]
+
+        like = f"%{q}%"
+        if since_ts is not None:
+            rows = self.conn.execute(
+                """
+                SELECT * FROM activity
+                WHERE ts >= ?
+                  AND (summary LIKE ? OR salient_text LIKE ? OR transcription LIKE ? OR app LIKE ? OR window LIKE ?)
+                ORDER BY ts DESC
+                LIMIT ?
+                """,
+                (since_ts, like, like, like, like, like, limit),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                """
+                SELECT * FROM activity
+                WHERE summary LIKE ? OR salient_text LIKE ? OR transcription LIKE ? OR app LIKE ? OR window LIKE ?
+                ORDER BY ts DESC
+                LIMIT ?
+                """,
+                (like, like, like, like, like, limit),
+            ).fetchall()
+        return [self._row_to_dict(r, None) for r in rows]
+
+    def query_hybrid(
+        self,
+        query_text: str,
+        query_embedding: np.ndarray,
+        limit: int = 10,
+        since_ts: int | None = None,
+    ) -> list[dict]:
+        exact = self.query_exact(query_text, limit=limit, since_ts=since_ts)
+        semantic = self.query(query_embedding, limit=limit, since_ts=since_ts)
+
+        if not exact:
+            return semantic
+        if not semantic:
+            return exact
+
+        by_id: dict[int, dict] = {}
+        rank: dict[int, float] = {}
+
+        for i, row in enumerate(semantic):
+            rid = int(row["id"])
+            by_id[rid] = row
+            rank[rid] = rank.get(rid, 0.0) + (row.get("score") or 0.0) + (1.0 / (i + 1))
+
+        for i, row in enumerate(exact):
+            rid = int(row["id"])
+            if rid not in by_id:
+                by_id[rid] = row
+            rank[rid] = rank.get(rid, 0.0) + 2.0 + (1.0 / (i + 1))
+
+        ordered = sorted(by_id.values(), key=lambda r: rank.get(int(r["id"]), 0.0), reverse=True)
+        return ordered[:limit]
 
     @staticmethod
     def _row_to_dict(row: sqlite3.Row, score: float | None) -> dict:
