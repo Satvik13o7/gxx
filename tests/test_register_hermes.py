@@ -36,6 +36,7 @@ def test_register_preserves_user_settings_and_is_idempotent(tmp_path):
         "capture_and_store",
         "query_datastore",
         "optimize_datastore",
+        "web_search",
         "speak",
         "ask_cloud",
     ]

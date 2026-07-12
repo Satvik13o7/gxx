@@ -36,6 +36,7 @@ def test_all_tools_registered(server):
         "optimize_datastore",
         "query_datastore",
         "speak",
+        "web_search",
     ]
 
 
@@ -78,3 +79,27 @@ def test_optimize_returns_report(server):
     out = json.loads(server.optimize_datastore())
     assert out["ok"] is True
     assert {"deduped", "evicted", "hard_deleted"} <= set(out)
+
+
+def test_web_search_uses_relay(server, monkeypatch):
+    class DummyRelay:
+        def search(self, query, num_results=5):
+            assert query == "latest python release"
+            assert num_results == 3
+            return {"results": [{"title": "Python", "url": "https://python.org"}]}
+
+    monkeypatch.setattr(server, "RelayClient", lambda: DummyRelay())
+    out = json.loads(server.web_search("latest python release", limit=3))
+    assert out["ok"] is True
+    assert out["count"] == 1
+
+
+def test_web_search_handles_relay_error(server, monkeypatch):
+    class FailingRelay:
+        def search(self, query, num_results=5):
+            raise server.RelayError("boom")
+
+    monkeypatch.setattr(server, "RelayClient", lambda: FailingRelay())
+    out = json.loads(server.web_search("anything", limit=5))
+    assert out["ok"] is False
+    assert "boom" in out["error"]

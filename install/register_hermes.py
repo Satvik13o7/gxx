@@ -58,6 +58,7 @@ def build_block(python: str, data_dir: str, relay_url: str, token: str, ask_clou
                 "capture_and_store",
                 "query_datastore",
                 "optimize_datastore",
+                "web_search",
                 "speak",
                 "ask_cloud",
             ]

@@ -4,10 +4,11 @@ Tools:
 - capture_and_store   : push an observation into the store (Hermes/skill can add notes)
 - query_datastore     : semantic search over past activity (the core Q&A path)
 - optimize_datastore  : dedup + retention maintenance (PRD feature 4)
+- web_search          : relay-backed web search (keeps search keys server-side)
 - ask_cloud           : opt-in, text-only cloud escalation via the relay (off by default)
 
-Voice output and web search are intentionally NOT here — Hermes provides those
-natively (decision 1). CRITICAL: an stdio MCP server must never write to stdout
+Voice output is intentionally NOT here — Hermes provides it natively when enabled.
+CRITICAL: an stdio MCP server must never write to stdout
 (it corrupts JSON-RPC); all logging goes to stderr.
 
 The store is opened per-request so this process always sees the daemon's latest
@@ -157,6 +158,24 @@ def ask_cloud(question: str) -> str:
     except RelayError as e:
         return json.dumps({"ok": False, "error": str(e)})
     return json.dumps({"ok": True, "answer": resp.get("answer", resp)})
+
+
+@mcp.tool()
+def web_search(query: str, limit: int = 5) -> str:
+    """Search the web through the relay (server-side search key).
+
+    Use this for fresh or external information. The query is PII-scrubbed before
+    being sent to the relay and authenticated with the device token.
+    """
+    try:
+        lim = max(1, min(int(limit), 10))
+    except (TypeError, ValueError):
+        lim = 5
+    try:
+        resp = RelayClient().search(scrub(query), num_results=lim)
+    except RelayError as e:
+        return json.dumps({"ok": False, "error": str(e)})
+    return json.dumps({"ok": True, "count": len(resp.get("results", [])), **resp}, ensure_ascii=False)
 
 
 def main() -> None:
