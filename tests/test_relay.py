@@ -131,6 +131,71 @@ def test_login_wrong_password_rejected(captured):
     assert c.post("/login", json={"email": "a@b.com", "password": "wrongwrong"}).status_code == 401
 
 
+def test_forgot_password_issues_token_and_never_leaks_existence(monkeypatch, captured):
+    store = AuthStore(":memory:")
+    c = client(tokens=set(), store=store)
+    c.post("/signup", json={"email": "a@b.com", "password": "correcthorse"})
+
+    sent = {}
+    monkeypatch.setattr(
+        appmod, "send_reset_email", lambda email, link: sent.update(email=email, link=link)
+    )
+
+    known = c.post("/forgot-password", json={"email": "a@b.com"})
+    unknown = c.post("/forgot-password", json={"email": "nope@nowhere.com"})
+
+    assert known.status_code == 200 and unknown.status_code == 200
+    assert known.json()["message"] == unknown.json()["message"]
+    assert sent["email"] == "a@b.com"
+    assert "reset_token=" in sent["link"]
+
+
+def test_reset_password_flow_rotates_credentials_and_is_single_use(monkeypatch, captured):
+    store = AuthStore(":memory:")
+    c = client(tokens=set(), store=store)
+    signup = c.post("/signup", json={"email": "a@b.com", "password": "correcthorse"})
+    old_token = signup.json()["token"]
+
+    sent = {}
+    monkeypatch.setattr(
+        appmod, "send_reset_email", lambda email, link: sent.update(email=email, link=link)
+    )
+    c.post("/forgot-password", json={"email": "a@b.com"})
+    reset_token = sent["link"].split("reset_token=")[1]
+
+    r = c.post("/reset-password", json={"reset_token": reset_token, "new_password": "newpassword2"})
+    assert r.status_code == 200
+    new_token = r.json()["token"]
+    assert new_token != old_token
+
+    # old password no longer works, new one does
+    assert c.post("/login", json={"email": "a@b.com", "password": "correcthorse"}).status_code == 401
+    assert c.post("/login", json={"email": "a@b.com", "password": "newpassword2"}).status_code == 200
+
+    # old device token is invalidated
+    assert c.post(
+        "/search", json={"query": "hi"}, headers={"Authorization": f"Bearer {old_token}"}
+    ).status_code == 401
+
+    # reusing the same reset token fails
+    again = c.post("/reset-password", json={"reset_token": reset_token, "new_password": "yetanother3"})
+    assert again.status_code == 400
+
+
+def test_reset_password_rejects_bad_or_short_password(captured):
+    store = AuthStore(":memory:")
+    c = client(tokens=set(), store=store)
+    assert c.post(
+        "/reset-password", json={"reset_token": "garbage", "new_password": "longenough"}
+    ).status_code == 400
+
+    c.post("/signup", json={"email": "a@b.com", "password": "correcthorse"})
+    real_token = store.create_reset_token("a@b.com")
+    assert c.post(
+        "/reset-password", json={"reset_token": real_token, "new_password": "short"}
+    ).status_code == 400
+
+
 def test_dashboard_and_installer_served(captured):
     c = client(tokens={"t"})
     home = c.get("/")

@@ -12,3 +12,4 @@ venv/
 *.npz
 activity.*
 .env
+relay_local.log

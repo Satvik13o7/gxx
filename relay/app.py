@@ -23,7 +23,7 @@ import zipfile
 from io import BytesIO
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel
 
@@ -32,6 +32,7 @@ TTS_SAMPLE_RATE = 16000
 TTS_OUTPUT_FORMAT = "pcm_16000"
 
 from relay.auth import AuthError, AuthStore
+from relay.mailer import send_reset_email
 from relay.pii import scrub
 from relay.ratelimit import RateLimiter
 
@@ -113,6 +114,15 @@ class TTSReq(BaseModel):
 class Credentials(BaseModel):
     email: str
     password: str
+
+
+class ForgotPasswordReq(BaseModel):
+    email: str
+
+
+class ResetPasswordReq(BaseModel):
+    reset_token: str
+    new_password: str
 
 
 def _allowed_tokens() -> set[str]:
@@ -253,6 +263,28 @@ def create_app(
             token = store.login(creds.email, creds.password)
         except AuthError as e:
             raise HTTPException(status_code=401, detail=str(e)) from e
+        return {"ok": True, "token": token}
+
+    @app.post("/forgot-password")
+    def forgot_password(req: ForgotPasswordReq, request: Request) -> dict:
+        reset_token = store.create_reset_token(req.email)
+        if reset_token:
+            base = str(request.base_url).rstrip("/")
+            reset_link = f"{base}/?reset_token={reset_token}"
+            try:
+                send_reset_email(req.email, reset_link)
+            except Exception:
+                log.exception("failed to send reset email to %s", req.email)
+        # Always return the same response, whether or not the email exists,
+        # so this endpoint can't be used to enumerate registered accounts.
+        return {"ok": True, "message": "If that email has an account, a reset link has been sent."}
+
+    @app.post("/reset-password")
+    def reset_password(req: ResetPasswordReq) -> dict:
+        try:
+            token = store.reset_password(req.reset_token, req.new_password)
+        except AuthError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
         return {"ok": True, "token": token}
 
     @app.get("/", response_class=HTMLResponse)

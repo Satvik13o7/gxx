@@ -83,6 +83,10 @@
   .btn:focus-visible{outline:2px solid var(--ink); outline-offset:2px}
   .msg{font-size:12px; min-height:16px; color:#a01414}
   .msg.ok{color:var(--ok)}
+  .linklike{appearance:none; background:none; border:0; padding:0; margin-top:-4px; cursor:pointer;
+    font-family:var(--mono); font-size:11px; letter-spacing:.1em; color:var(--muted); text-decoration:underline;
+    align-self:flex-start}
+  .linklike:hover{color:var(--ink)}
 
   /* dashboard state */
   .panel{display:none; flex-direction:column}
@@ -164,7 +168,36 @@
           <input type="password" id="password" required minlength="8" placeholder="at least 8 characters" />
         </label>
         <button class="btn" id="submit" type="submit">Sign in</button>
+        <button class="linklike" id="forgot" type="button">Forgot password?</button>
         <p class="msg" id="msg" role="status" aria-live="polite"></p>
+      </form>
+    </section>
+
+    <section class="card panel" id="forgot-panel">
+      <div class="row">
+        <span class="k">Forgot password</span>
+      </div>
+      <form id="forgot-form" autocomplete="on" style="padding-inline:24px">
+        <label>Email
+          <input type="email" id="forgot-email" required placeholder="you@example.com" />
+        </label>
+        <button class="btn" id="forgot-submit" type="submit">Send reset link</button>
+        <button class="linklike" id="forgot-cancel" type="button">Back to sign in</button>
+        <p class="msg" id="forgot-msg" role="status" aria-live="polite"></p>
+      </form>
+    </section>
+
+    <section class="card panel" id="reset">
+      <div class="row">
+        <span class="k">Set a new password</span>
+      </div>
+      <form id="reset-form" autocomplete="on" style="padding-inline:24px">
+        <label>New password
+          <input type="password" id="reset-new-password" required minlength="8" placeholder="at least 8 characters" />
+        </label>
+        <button class="btn" id="reset-submit" type="submit">Reset password</button>
+        <button class="linklike" id="reset-cancel" type="button">Back to sign in</button>
+        <p class="msg" id="reset-msg" role="status" aria-live="polite"></p>
       </form>
     </section>
 
@@ -253,6 +286,9 @@
   function say(text, ok) {
     var el = $("msg"); el.textContent = text; el.className = "msg" + (ok ? " ok" : "");
   }
+  function sayReset(text, ok) {
+    var el = $("reset-msg"); el.textContent = text; el.className = "msg" + (ok ? " ok" : "");
+  }
   function showDash(token) {
     $("auth").style.display = "none";
     $("dash").classList.add("show");
@@ -277,6 +313,68 @@
 
   $("tab-login").onclick = function () { setMode("login"); };
   $("tab-signup").onclick = function () { setMode("signup"); };
+
+  function sayForgot(text, ok) {
+    var el = $("forgot-msg"); el.textContent = text; el.className = "msg" + (ok ? " ok" : "");
+  }
+  function showPanel(id) {
+    ["auth", "forgot-panel", "reset"].forEach(function (pid) {
+      if (pid === "auth") { $(pid).style.display = pid === id ? "" : "none"; return; }
+      $(pid).classList[pid === id ? "add" : "remove"]("show");
+    });
+  }
+
+  $("forgot").onclick = function () {
+    showPanel("forgot-panel");
+    $("forgot-email").value = $("email").value.trim();
+    sayForgot("");
+  };
+  $("forgot-cancel").onclick = function () { showPanel("auth"); sayForgot(""); };
+  $("forgot-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var email = $("forgot-email").value.trim();
+    $("forgot-submit").disabled = true; sayForgot("…");
+    fetch(RELAY + "/forgot-password", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: email })
+    })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+      .then(function (res) {
+        $("forgot-submit").disabled = false;
+        if (!res.ok) { sayForgot(res.b.detail || "Something went wrong.", false); return; }
+        sayForgot(res.b.message || "If that email has an account, a reset link has been sent.", true);
+      })
+      .catch(function () { $("forgot-submit").disabled = false; sayForgot("Can't reach the relay. Is it running?", false); });
+  });
+
+  $("reset-cancel").onclick = function () { showPanel("auth"); sayReset(""); };
+  $("reset-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var params = new URLSearchParams(window.location.search);
+    var resetToken = params.get("reset_token") || "";
+    var newPassword = $("reset-new-password").value;
+    $("reset-submit").disabled = true; sayReset("…");
+    fetch(RELAY + "/reset-password", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reset_token: resetToken, new_password: newPassword })
+    })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+      .then(function (res) {
+        $("reset-submit").disabled = false;
+        if (!res.ok) { sayReset(res.b.detail || "Something went wrong.", false); return; }
+        sayReset("Password updated. Signed in.", true);
+        localStorage.setItem("contour_token", res.b.token);
+        showPanel("auth");
+        showDash(res.b.token);
+        window.history.replaceState({}, "", window.location.pathname);
+      })
+      .catch(function () { $("reset-submit").disabled = false; sayReset("Can't reach the relay. Is it running?", false); });
+  });
+
+  (function checkResetLink() {
+    var params = new URLSearchParams(window.location.search);
+    if (params.get("reset_token")) { showPanel("reset"); sayReset(""); }
+  })();
 
   $("form").addEventListener("submit", function (e) {
     e.preventDefault();

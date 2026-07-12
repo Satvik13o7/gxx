@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 
 _ITERATIONS = 200_000
+_RESET_TOKEN_TTL = 30 * 60  # 30 minutes
 
 
 def _hash_pw(password: str, salt: bytes) -> str:
@@ -41,6 +42,14 @@ class AuthStore:
                    pw_hash    TEXT NOT NULL,
                    token      TEXT UNIQUE NOT NULL,
                    created_at INTEGER NOT NULL
+               )"""
+        )
+        self.conn.execute(
+            """CREATE TABLE IF NOT EXISTS password_resets (
+                   reset_token TEXT PRIMARY KEY,
+                   email       TEXT NOT NULL,
+                   expires_at  INTEGER NOT NULL,
+                   used        INTEGER NOT NULL DEFAULT 0
                )"""
         )
         self.conn.commit()
@@ -70,6 +79,49 @@ class AuthStore:
         if _hash_pw(password, bytes.fromhex(row["salt"])) != row["pw_hash"]:
             raise AuthError("incorrect password")
         return row["token"]
+
+    def create_reset_token(self, email: str) -> str | None:
+        """Issue a one-time reset token for `email`, if an account exists.
+
+        Returns None (rather than raising) when the email is unknown, so callers
+        can return a generic "check your email" response and avoid leaking
+        which emails have accounts.
+        """
+        email = (email or "").strip().lower()
+        if not self.conn.execute("SELECT 1 FROM users WHERE email=?", (email,)).fetchone():
+            return None
+        reset_token = secrets.token_urlsafe(32)
+        expires_at = int(time.time()) + _RESET_TOKEN_TTL
+        self.conn.execute(
+            "INSERT INTO password_resets(reset_token,email,expires_at,used) VALUES(?,?,?,0)",
+            (reset_token, email, expires_at),
+        )
+        self.conn.commit()
+        return reset_token
+
+    def reset_password(self, reset_token: str, new_password: str) -> str:
+        if len(new_password or "") < 8:
+            raise AuthError("password must be at least 8 characters")
+        row = self.conn.execute(
+            "SELECT * FROM password_resets WHERE reset_token=?", (reset_token or "",)
+        ).fetchone()
+        if not row:
+            raise AuthError("invalid or expired reset link")
+        if row["used"]:
+            raise AuthError("this reset link has already been used")
+        if row["expires_at"] < int(time.time()):
+            raise AuthError("this reset link has expired")
+        salt = secrets.token_bytes(16)
+        token = "contour_" + secrets.token_urlsafe(24)
+        self.conn.execute(
+            "UPDATE users SET salt=?, pw_hash=?, token=? WHERE email=?",
+            (salt.hex(), _hash_pw(new_password, salt), token, row["email"]),
+        )
+        self.conn.execute(
+            "UPDATE password_resets SET used=1 WHERE reset_token=?", (reset_token,)
+        )
+        self.conn.commit()
+        return token
 
     def valid_token(self, token: str) -> bool:
         if not token:
