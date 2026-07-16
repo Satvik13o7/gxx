@@ -36,6 +36,7 @@ def test_all_tools_registered(server):
         "optimize_datastore",
         "query_datastore",
         "speak",
+        "speak_proactive",
         "web_search",
     ]
 

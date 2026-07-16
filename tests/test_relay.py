@@ -82,6 +82,80 @@ def test_rate_limit_returns_429(captured):
     assert c.post("/search", json={"query": "c"}, headers=h).status_code == 429
 
 
+def test_transcriptions_proxies_scribe_and_scrubs(monkeypatch):
+    cap = {}
+
+    def fake_stt(audio, filename, model=""):
+        cap["audio"] = audio
+        cap["filename"] = filename
+        cap["model"] = model
+        return "my email is bob@example.com"
+
+    monkeypatch.setattr(appmod, "do_stt", fake_stt)
+    r = client(tokens={"t"}).post(
+        "/v1/audio/transcriptions",
+        files={"file": ("clip.wav", b"RIFFfake", "audio/wav")},
+        data={"model": "scribe_v1"},
+        headers={"Authorization": "Bearer t"},
+    )
+    assert r.status_code == 200
+    assert cap["audio"] == b"RIFFfake"
+    assert cap["filename"] == "clip.wav"
+    assert cap["model"] == "scribe_v1"
+    text = r.json()["text"]
+    assert "bob@example.com" not in text and "[EMAIL]" in text  # server backstop
+
+
+def test_transcriptions_serves_elevenlabs_native_path(monkeypatch):
+    # Hermes appends ElevenLabs' own path to the base URL and sends model_id, not model.
+    cap = {}
+
+    def fake_stt(audio, filename, model=""):
+        cap["model"] = model
+        return "native path ok"
+
+    monkeypatch.setattr(appmod, "do_stt", fake_stt)
+    r = client(tokens={"t"}).post(
+        "/v1/speech-to-text",
+        files={"file": ("clip.wav", b"RIFFfake", "audio/wav")},
+        data={"model_id": "scribe_v1"},
+        headers={"xi-api-key": "t"},
+    )
+    assert r.status_code == 200
+    assert r.json()["text"] == "native path ok"
+    assert cap["model"] == "scribe_v1"
+
+
+def test_transcriptions_accepts_xi_api_key_header(monkeypatch):
+    # Hermes' ElevenLabs STT client sends the device token as xi-api-key, not a bearer token.
+    monkeypatch.setattr(appmod, "do_stt", lambda audio, filename, model="": "hello there")
+    r = client(tokens={"t"}).post(
+        "/v1/audio/transcriptions",
+        files={"file": ("clip.wav", b"RIFFfake", "audio/wav")},
+        headers={"xi-api-key": "t"},
+    )
+    assert r.status_code == 200
+    assert r.json()["text"] == "hello there"
+
+
+def test_transcriptions_requires_auth():
+    r = client(tokens={"t"}).post(
+        "/v1/audio/transcriptions",
+        files={"file": ("clip.wav", b"RIFFfake", "audio/wav")},
+    )
+    assert r.status_code == 401
+
+
+def test_transcriptions_rejects_empty_upload(monkeypatch):
+    monkeypatch.setattr(appmod, "do_stt", lambda *a, **k: pytest.fail("should not call provider"))
+    r = client(tokens={"t"}).post(
+        "/v1/audio/transcriptions",
+        files={"file": ("clip.wav", b"", "audio/wav")},
+        headers={"Authorization": "Bearer t"},
+    )
+    assert r.status_code == 400
+
+
 def test_tts_proxies_elevenlabs_and_scrubs(monkeypatch):
     cap = {}
 

@@ -8,7 +8,8 @@ Endpoints:
     GET  /health            -> liveness + which providers are configured
     POST /search  {query,num_results}  -> {results:[{title,url,snippet}]}
     POST /cloud   {prompt,system}       -> {answer}   (opt-in on the client)
-    POST /tts                            -> 501 (voice uses Hermes' free Edge TTS)
+    POST /tts     {text,voice_id}        -> raw PCM16 audio (ElevenLabs)
+    POST /v1/audio/transcriptions        -> {text}  (OpenAI-shaped; proxies ElevenLabs Scribe)
 
 Provider calls (`do_search`, `do_cloud`) are module-level so tests can monkeypatch
 them without real keys or network.
@@ -23,7 +24,7 @@ import zipfile
 from io import BytesIO
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from pydantic import BaseModel
 
@@ -231,6 +232,25 @@ def do_tts(text: str, voice_id: str) -> bytes:
     return r.content
 
 
+def do_stt(audio: bytes, filename: str, model: str = "") -> str:
+    """Transcribe audio via ElevenLabs Scribe; returns the recognized text."""
+    import httpx
+
+    key = os.environ.get("ELEVENLABS_API_KEY")
+    if not key:
+        raise HTTPException(status_code=503, detail="no STT provider configured")
+    mdl = model or os.environ.get("ELEVENLABS_STT_MODEL", "scribe_v1")
+    r = httpx.post(
+        "https://api.elevenlabs.io/v1/speech-to-text",
+        headers={"xi-api-key": key},
+        files={"file": (filename or "audio.wav", audio, "application/octet-stream")},
+        data={"model_id": mdl},
+        timeout=120,
+    )
+    r.raise_for_status()
+    return r.json().get("text", "")
+
+
 def do_vision(prompt: str, image_b64: str, model: str = "") -> str:
     """Run hosted vision inference via backend-managed provider keys."""
     import httpx
@@ -283,8 +303,7 @@ def create_app(
     # auth is enforced when either a static allowlist or accounts exist
     require_auth = bool(allowed) or store is not None
 
-    def auth(authorization: str = Header(default="")) -> str:
-        token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
+    def _check(token: str) -> str:
         if require_auth:
             ok = (token in allowed) or (store is not None and store.valid_token(token))
             if not ok:
@@ -292,6 +311,22 @@ def create_app(
         if not rl.allow(token or "anon"):
             raise HTTPException(status_code=429, detail="rate limit exceeded")
         return token
+
+    def auth(authorization: str = Header(default="")) -> str:
+        token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
+        return _check(token)
+
+    def auth_compat(
+        authorization: str = Header(default=""),
+        xi_api_key: str = Header(default="", alias="xi-api-key"),
+    ) -> str:
+        """Auth for the OpenAI/ElevenLabs-shaped routes.
+
+        Third-party STT clients send the device token in the provider's own key header
+        (``xi-api-key``) rather than as a bearer token, so accept either form.
+        """
+        token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
+        return _check(token or xi_api_key.strip())
 
     @app.post("/signup")
     def signup(creds: Credentials) -> dict:
@@ -396,6 +431,7 @@ def create_app(
                 ),
                 "cloud": bool(os.environ.get("OPENAI_API_KEY")),
                 "tts": bool(os.environ.get("ELEVENLABS_API_KEY")),
+                "stt": bool(os.environ.get("ELEVENLABS_API_KEY")),
             },
             "auth_required": bool(allowed),
         }
@@ -423,6 +459,24 @@ def create_app(
     def vision(req: VisionReq, token: str = Depends(auth)) -> dict:
         content = do_vision(scrub(req.prompt), req.image_b64, req.model)
         return {"content": content}
+
+    # Drop-in transcription endpoint: clients are pointed at <relay>/v1 in place of the
+    # provider's own base URL, so we answer on both the ElevenLabs native path
+    # (/v1/speech-to-text, what Hermes calls) and the OpenAI-compatible one
+    # (/v1/audio/transcriptions). Audio is proxied to Scribe; the key stays on the relay.
+    @app.post("/v1/speech-to-text")
+    @app.post("/v1/audio/transcriptions")
+    async def transcriptions(
+        file: UploadFile = File(...),
+        model: str = Form(default=""),  # OpenAI field name
+        model_id: str = Form(default=""),  # ElevenLabs field name
+        token: str = Depends(auth_compat),
+    ) -> dict:
+        audio = await file.read()
+        if not audio:
+            raise HTTPException(status_code=400, detail="empty audio upload")
+        text = do_stt(audio, file.filename or "audio.wav", model or model_id)
+        return {"text": scrub(text)}  # server-side backstop before it goes back to the device
 
     return app
 
