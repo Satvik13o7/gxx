@@ -38,6 +38,7 @@ def test_register_preserves_user_settings_and_is_idempotent(tmp_path):
         "optimize_datastore",
         "web_search",
         "speak",
+        "speak_proactive",
         "ask_cloud",
     ]
     assert d["skills"]["config"]["ask_cloud"] is True
