@@ -4,6 +4,7 @@ Tools:
 - capture_and_store   : push an observation into the store (Hermes/skill can add notes)
 - query_datastore     : semantic search over past activity (the core Q&A path)
 - optimize_datastore  : dedup + retention maintenance (PRD feature 4)
+- speak_proactive     : speak a line the deciding tool chose, if its guards allow (PRD feature 6)
 - web_search          : relay-backed web search (keeps search keys server-side)
 - ask_cloud           : opt-in, text-only cloud escalation via the relay (off by default)
 
@@ -35,7 +36,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from datastore import ActivityStore, Observation  # noqa: E402
 from datastore.pii import scrub  # noqa: E402
 from mcp.server.fastmcp import FastMCP  # noqa: E402
-from watcher import config  # noqa: E402
+from watcher import config, proactive  # noqa: E402
 from watcher.understand import Understanding  # noqa: E402
 
 from mcp_server.relay_client import RelayClient, RelayError  # noqa: E402
@@ -55,6 +56,40 @@ def open_store():
 
 def _ask_cloud_enabled() -> bool:
     return os.environ.get("CONTOUR_ASK_CLOUD", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _quiet_mode() -> bool:
+    """Global mute for proactive speech (the demo's 'boring control' switch)."""
+    return os.environ.get("CONTOUR_QUIET", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _slim(rows: list[dict]) -> list[dict]:
+    return [
+        {
+            "id": r["id"],
+            "time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(r["ts"])),
+            "app": r.get("app", ""),
+            "window": r.get("window", ""),
+            "summary": r.get("summary", ""),
+            "salient_text": r.get("salient_text", ""),
+            "score": round(r["score"], 4) if "score" in r else None,
+        }
+        for r in rows
+    ]
+
+
+def _fetch(query: str, limit: int, since_ts: int | None) -> list[dict]:
+    """Semantic search with a recency fallback."""
+    with open_store() as store:
+        try:
+            qvec = _understanding.embed(query, is_query=True)
+            results = store.query(qvec, limit=limit, since_ts=since_ts)
+            if not results:
+                results = store.recent(limit=limit, since_ts=since_ts)
+        except Exception as e:  # noqa: BLE001 - fall back to recency if Ollama down
+            log.warning("semantic query failed (%s); returning recent rows", e)
+            results = store.recent(limit=limit, since_ts=since_ts)
+    return _slim(results)
 
 
 @mcp.tool()
@@ -96,27 +131,7 @@ def query_datastore(query: str, limit: int = 10, since_minutes: int | None = Non
     relevant first. Use this to answer questions about what the user has been doing.
     """
     since_ts = int(time.time()) - since_minutes * 60 if since_minutes else None
-    with open_store() as store:
-        try:
-            qvec = _understanding.embed(query, is_query=True)
-            results = store.query(qvec, limit=limit, since_ts=since_ts)
-            if not results:
-                results = store.recent(limit=limit, since_ts=since_ts)
-        except Exception as e:  # noqa: BLE001 - fall back to recency if Ollama down
-            log.warning("semantic query failed (%s); returning recent rows", e)
-            results = store.recent(limit=limit, since_ts=since_ts)
-    slim = [
-        {
-            "id": r["id"],
-            "time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(r["ts"])),
-            "app": r.get("app", ""),
-            "window": r.get("window", ""),
-            "summary": r.get("summary", ""),
-            "salient_text": r.get("salient_text", ""),
-            "score": round(r["score"], 4) if "score" in r else None,
-        }
-        for r in results
-    ]
+    slim = _fetch(query, limit, since_ts)
     return json.dumps({"count": len(slim), "results": slim}, ensure_ascii=False)
 
 
@@ -143,6 +158,45 @@ def speak(text: str) -> str:
 
     ok = _speak(text)
     return json.dumps({"ok": ok, "spoken": text if ok else ""})
+
+
+@mcp.tool()
+def speak_proactive(speak: bool, text: str = "") -> str:
+    """Speak a proactive line that the deciding tool has already chosen.
+
+    The caller owns the decision — it reads the activity store and works out whether
+    anything is worth interrupting for. Pass its verdict straight through: speak=false
+    means stay silent (nothing is said, nothing is returned to be said), speak=true with
+    the line to say means say it in the user's ElevenLabs voice.
+
+    This still refuses to talk over the user: a cooldown between interjections and the
+    global quiet switch are enforced here, so a chatty or looping caller cannot become
+    a nuisance. The response reports what actually happened and why.
+    """
+    now = time.time()
+    outcome = proactive.gate(
+        speak=speak,
+        text=text,
+        now=now,
+        last_fire=proactive.read_last_fire(),
+        quiet=_quiet_mode(),
+    )
+    if not outcome["speak"]:
+        return json.dumps({"ok": True, "spoke": False, **outcome}, ensure_ascii=False)
+
+    from watcher.voice import speak as _speak
+
+    spoke = _speak(outcome["text"])
+    # Only start the cooldown if we actually made a sound; a failed TTS call must not
+    # silence the next genuinely-actionable moment for a full cooldown.
+    if spoke:
+        proactive.write_last_fire(now)
+    else:
+        log.warning("caller asked us to speak but TTS failed; not starting cooldown")
+    return json.dumps(
+        {"ok": True, "spoke": spoke, **outcome, "reason": outcome["reason"] if spoke else "tts failed"},
+        ensure_ascii=False,
+    )
 
 
 @mcp.tool()
